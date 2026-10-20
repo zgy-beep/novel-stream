@@ -15,7 +15,8 @@
  *   AC-08 导出反馈：Blob 下载（BOM/文件名/章节标题）、状态行 is-success、toast、0 章时不下载只警告。
  *
  * 实现方式与 v1.x 的 test-settings-tabs.js 同模式：playwright-core + 本机 Edge，
- * 页内加载 vendor 三件套（tokens.css/components.css/nvui-api.js 经 style.css/script 引入），
+ * 页内直接链接 vendor 三件套（ui-kit/tokens.css + ui-kit/components.css + ui-kit/nvui-api.js；
+ * 生产由 index.js 运行时注入，本测试绕过加载器直连，保证断网可跑），
  * 从 index.js 抽取真实面板函数执行（非手抄副本），断言全部走真实计算样式与真实事件派发。
  */
 
@@ -389,6 +390,8 @@ window.__api = {
 const HTML = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, viewport-fit=cover, initial-scale=1">
+<link rel="stylesheet" href="${path.posix.join(ROOT.replace(/\\/g, '/'), 'ui-kit', 'tokens.css')}">
+<link rel="stylesheet" href="${path.posix.join(ROOT.replace(/\\/g, '/'), 'ui-kit', 'components.css')}">
 <link rel="stylesheet" href="${path.posix.join(ROOT.replace(/\\/g, '/'), 'style.css')}">
 ${faLink}
 <style>
@@ -478,7 +481,7 @@ function checkTrue(name, cond) {
         console.log('\n=== ③ 内容排布（design.md §1.4）===');
         const heads = await dpage.evaluate(() => window.__api.headings());
         check('三个分区 heading 标题', heads.map((h) => h.title).join('|'), '连载设置|过滤设置|文件与导出');
-        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.0.0|v2.0.0|v2.0.0');
+        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.1.0|v2.1.0|v2.1.0');
         checkTrue('heading 均带 FA 图标', heads.every((h) => h.icon));
         check('连载 pane 子元素顺序（heading→状态行→feature开关→3 折叠组）',
             (await dpage.evaluate(() => window.__api.serialChildren())).join('|'),

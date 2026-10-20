@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen.svg?style=flat-square)
+![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen.svg?style=flat-square)
 ![SillyTavern](https://img.shields.io/badge/SillyTavern-%3E%3D1.12.0-blue.svg?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Docker%20%7C%20NAS%20%7C%20Termux-orange.svg?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-purple.svg?style=flat-square)
@@ -183,11 +183,11 @@
 ```text
 ST-auto-save-to-txt/
 ├── index.js                  # 前端核心扩展代码（清洗引擎 / 章节派生 / NVUI 面板 / 导出逻辑）
-├── style.css                 # 前端样式表（NVUI Kit 引入 + 小说面板节奏规则）
+├── style.css                 # 前端样式表（小说面板节奏规则；Kit CSS 由 index.js 运行时注入）
 ├── manifest.json             # SillyTavern 官方扩展清单定义
 ├── README.md                 # 项目使用与排障指南
 ├── .gitignore                # Git 忽略配置
-├── ui-kit/                   # NVUI Kit v2.2.0（设计令牌 + 组件 + API，字节级 vendor）
+├── ui-kit/                   # NVUI Kit v2.2.0（CDN 在线优先时的本地离线兜底 vendor）
 │   ├── tokens.css            # 设计令牌（间距 / 圆角 / 字号 / 过渡 / 焦点环）
 │   ├── components.css        # 组件样式（面板 / 标签 / 折叠组 / 状态行 / 开关 ...）
 │   ├── nvui-api.js           # 面板 / Toast / 折叠组 API

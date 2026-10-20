@@ -96,6 +96,21 @@ const cases = [
         input: '没有任何指定标签的普通正文。',
         settings: { include_tags: 'story' },
         expected: '　　没有任何指定标签的普通正文。'
+    },
+    {
+        name: '测试13: 标签名含 plan 子串的正文标签不被思维链误删（如 <planets>）',
+        input: '<planets>行星列表如下</planets>他从不说谎。',
+        expected: '　　行星列表如下他从不说谎。'
+    },
+    {
+        name: '测试14: 末尾未闭合但非辅助标签不截断（如 <airplane>，旧实现会砍掉其后全部正文）',
+        input: '他打开了舱门。<airplane>机型：AX-9',
+        expected: '　　他打开了舱门。机型：AX-9'
+    },
+    {
+        name: '测试15: 分隔变体思维链照常剔除（如 <my_cot_2>，防止精确名单收得过窄）',
+        input: '<my_cot_2>内部推理过程</my_cot_2>正文保留。',
+        expected: '　　正文保留。'
     }
 ];
 

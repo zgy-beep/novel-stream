@@ -1,5 +1,5 @@
 /**
- * SillyTavern 小说连载阅读扩展 (Novel Stream) · v2.0.0
+ * SillyTavern 小说连载阅读扩展 (Novel Stream) · v2.1.0
  *
  * 一句话：把每一轮 AI 回复清洗、编排成规范小说章节，随时一键导出整本 TXT。
  *
@@ -7,11 +7,19 @@
  * - 章节派生改为无状态架构：聊天记录是唯一事实源，computeChapters 从聊天记录全量派生，
  *   重 roll / 划动 / 编辑 / 删除 / 切聊天全部天然正确；v1.x 的签名去重、草稿缓冲、
  *   服务端落盘那一整套跨消息持久状态随之删除。
- * - UI 全面改用 NVUI Kit（vendor 于 ui-kit/）：NVUI.createPanel 装配「连载 / 过滤 / 文件」
- *   三分区设置面板，入口收敛为魔法棒菜单一项；悬浮药丸、楼层工具条、楼层徽标、
- *   会话标签检测器、过滤效果预览弹窗全部退役。
+ * - UI 全面改用 NVUI Kit（CDN 在线优先 + vendor 于 ui-kit/ 兜底，见文件下方加载器）：
+ *   NVUI.createPanel 装配「连载 / 过滤 / 文件」三分区设置面板，入口收敛为魔法棒菜单一项；
+ *   悬浮药丸、楼层工具条、楼层徽标、会话标签检测器、过滤效果预览弹窗全部退役。
  * - 服务端插件（plugins/auto-save）退役：导出走纯前端 Blob 下载，不再有 404 / 413 场景。
  * - 设置键收敛为 Spec §6 的 9 键；旧键读取时忽略、不写迁移代码，老用户设置无缝继承。
+ *
+ * v2.1.0 变更（2026-10-20，用户裁断「Kit 由上游独立维护，改在线优先」）：
+ * - Kit 资产加载改 jsDelivr CDN @2 锚点在线优先（自动跟随 2.x，破坏性变更不进入），
+ *   10s 超时 / 失败回退随包 vendor 的 ./ui-kit/；style.css 不再 @import Kit CSS，
+ *   改由本文件顶部的加载器在运行时注入（link/script 标签，CSS 串行保序）。
+ * - 标签清洗健壮性加固：辅助标签（think/plan/cot 等）改为「字母段完整命中名单」判定，
+ *   杜绝 <planets> / <airplane> / <cotton> 子串误伤；排除标签 alternation 长标签在前，
+ *   避免前缀遮蔽导致配对断裂；清洗缓存按 chatLog 长度修剪残留条目。
  */
 
 import { getContext, extension_settings as ext_settings_raw } from '../../../extensions.js';
@@ -23,8 +31,86 @@ import {
     characters as characters_raw,
     this_chid as this_chid_raw
 } from '../../../../script.js';
-// NVUI Kit 面板运行时（UMD：import 执行后挂 globalThis.NVUI）
-import './ui-kit/nvui-api.js';
+/* ---------- NVUI Kit 资产加载（CDN 在线优先，本地 vendor 兜底） ---------- */
+// Kit 由上游独立维护且持续迭代（github.com/zgy-beep/ui-kit，语义化版本承诺：破坏性变更升大版本），
+// @2 锚点经 jsDelivr 自动跟随 2.x 最新，升级无需重新 vendor；CDN 不可达（离线 / 内网 / 挂起超时）
+// 时回退到随包 vendor 的 ./ui-kit/（锁定 v2.2.0），保证离线可用。
+// Kit 缺陷不修本地副本，一律提上游 issue（docs/decisions/OPEN-DECISIONS.md）。
+const NVUI_CDN_BASE = 'https://cdn.jsdelivr.net/gh/zgy-beep/ui-kit@2';
+const NVUI_LOAD_TIMEOUT = 10000; // CDN 挂起不阻塞启动：超时即回退本地 vendor
+
+function loadTagOnce(makeEl, src) {
+    return new Promise((resolve, reject) => {
+        const el = makeEl();
+        const timer = setTimeout(() => { el.remove(); reject(new Error(`load timeout: ${src}`)); }, NVUI_LOAD_TIMEOUT);
+        el.onload = () => { clearTimeout(timer); resolve(); };
+        el.onerror = () => { clearTimeout(timer); el.remove(); reject(new Error(`load failed: ${src}`)); };
+        document.head.appendChild(el);
+    });
+}
+
+function loadScriptOnce(src) {
+    return loadTagOnce(() => {
+        const el = document.createElement('script');
+        el.src = src;
+        return el;
+    }, src);
+}
+
+function loadCssOnce(href) {
+    return loadTagOnce(() => {
+        const el = document.createElement('link');
+        el.rel = 'stylesheet';
+        el.href = href;
+        return el;
+    }, href);
+}
+
+// 本地 vendor 地址必须基于本模块自身 URL 解析：页面基址是酒馆宿主，相对路径会指错
+function localKitUrl(file) {
+    return new URL(`ui-kit/${file}`, import.meta.url).href;
+}
+
+async function loadNvuiScript() {
+    if (globalThis.NVUI) return;
+    try {
+        await loadScriptOnce(`${NVUI_CDN_BASE}/nvui-api.js`);
+    } catch (err) { /* 落入下方本地兜底 */ }
+    if (!globalThis.NVUI) {
+        await loadScriptOnce(localKitUrl('nvui-api.js'));
+    }
+}
+
+async function loadNvuiCss(file) {
+    try {
+        await loadCssOnce(`${NVUI_CDN_BASE}/${file}`);
+    } catch (err) {
+        await loadCssOnce(localKitUrl(file));
+    }
+}
+
+let nvuiAssetsPromise = null;
+function ensureNvuiAssets() {
+    if (!nvuiAssetsPromise) {
+        nvuiAssetsPromise = (async () => {
+            // CSS 串行保序（tokens 在前、components 在后），JS 与 CSS 并行
+            const cssReady = (async () => {
+                await loadNvuiCss('tokens.css');
+                await loadNvuiCss('components.css');
+            })();
+            await loadNvuiScript();
+            await cssReady;
+            return !!globalThis.NVUI;
+        })().catch((err) => {
+            console.warn('[AutoSaveTxt] NVUI Kit 加载失败（CDN 与本地 vendor 均不可达）:', err);
+            return false;
+        });
+    }
+    return nvuiAssetsPromise;
+}
+
+// 模块加载即开始拉取（面板等用户点击才开，但令牌 CSS 影响魔法棒菜单项着色）
+const nvuiAssetsReady = (typeof document !== 'undefined') ? ensureNvuiAssets() : Promise.resolve(false);
 
 function getStContext() {
     if (typeof getContext === 'function') {
@@ -259,13 +345,33 @@ function cleanNovelText(rawText, settings = {}) {
         break;
     }
 
-    // 泛化剔除成对的思考/思维链/草稿/规划标签（覆盖 think, thought, reasoning, cot, scratchpad, reflection, inner_thought 等各类变体）
-    const genericAuxiliaryPattern = /<\s*([a-zA-Z0-9_\-~.:#]*(?:think|thought|reasoning|cot|scratchpad|reflection|inner_thought|analysis|plan)[a-zA-Z0-9_\-~.:#]*)[^>]*>[\s\S]*?<\/\s*\1\s*>\s*/gi;
-    text = text.replace(genericAuxiliaryPattern, '');
+    // 泛化剔除思考/思维链/草稿/规划标签：标签名拆成字母段后有完整段命中名单才算辅助标签
+    // （think_2 / agent-cot 等分隔变体照常识别），杜绝 <planets> / <airplane> / <cotton> 子串误伤
+    const AUX_WORDS = new Set(['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'cot', 'scratchpad', 'reflection', 'analysis', 'plan', 'planning']);
+    const isAuxTag = (tagName) => String(tagName).toLowerCase().split(/[^a-z]+/).some((w) => AUX_WORDS.has(w));
+    const auxOpenRe = /<\s*([a-zA-Z][a-zA-Z0-9_\-~.:#]*)[^>]*>/gi;
 
-    // 剔除末尾未闭合的思考链（针对 max_tokens 截断未输出闭合标签的情况）
-    const unclosedAuxPattern = /<\s*([a-zA-Z0-9_\-~.:#]*(?:think|thought|reasoning|cot|scratchpad|reflection|inner_thought|analysis|plan)[a-zA-Z0-9_\-~.:#]*)[^>]*>[\s\S]*$/i;
-    text = text.replace(unclosedAuxPattern, '');
+    // 成对剔除：逐个找出辅助标签开标签，按真实标签名精确配对剔除
+    const scannedAux = new Set();
+    let auxScan;
+    while ((auxScan = auxOpenRe.exec(text)) !== null) {
+        const auxName = auxScan[1];
+        const auxKey = auxName.toLowerCase();
+        if (scannedAux.has(auxKey) || !isAuxTag(auxKey)) continue;
+        scannedAux.add(auxKey);
+        const safeAuxName = auxName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp(`<\\s*${safeAuxName}[^>]*>[\\s\\S]*?<\\/\\s*${safeAuxName}\\s*>\\s*`, 'gi'), '');
+        auxOpenRe.lastIndex = 0; // 文本已变，从头重扫（同名标签已被 scannedAux 去重，不会死循环）
+    }
+
+    // 剔除残留的第一个未闭合辅助标签及其后全部内容（max_tokens 截断未输出闭合标签的情况）
+    auxOpenRe.lastIndex = 0;
+    while ((auxScan = auxOpenRe.exec(text)) !== null) {
+        if (isAuxTag(auxScan[1])) {
+            text = text.slice(0, auxScan.index);
+            break;
+        }
+    }
 
     // 阶段一【白名单模式】：优先提取指定标签内的正文
     const includeTags = parseTagList(settings.include_tags);
@@ -295,22 +401,31 @@ function cleanNovelText(rawText, settings = {}) {
     );
 
     if (excludeTags.length > 0) {
+        // 长标签在前，避免 alternation 前缀遮蔽（短标签抢先在长标签名上命中会导致配对断裂）
+        const sortedTags = excludeTags.slice().sort((a, b) => b.length - a.length);
+        const alt = sortedTags.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+
+        // 1. 成对标签块一趟剔除（合并 alternation + 反向引用，替代逐标签全文本扫描）
+        text = text.replace(new RegExp(`<\\s*(${alt})[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi'), '');
+
+        // 2. 一趟扫描确定各标签残留的开 / 闭标签存在性
+        const presenceRe = new RegExp(`<\\s*(\\/)?\\s*(${alt})[^>]*>`, 'gi');
+        const hasOpen = new Set();
+        const hasClose = new Set();
+        let presenceMatch;
+        while ((presenceMatch = presenceRe.exec(text)) !== null) {
+            (presenceMatch[1] ? hasClose : hasOpen).add(presenceMatch[2].toLowerCase());
+        }
+
+        // 3. 仅对确有残留形态的标签定点清除：无开有闭 → 切除开篇孤立闭块；有开无闭 → 切除末尾未闭合块
         for (const tag of excludeTags) {
+            const key = tag.toLowerCase();
             const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // 1. 成对标签块排除
-            const pairReg = new RegExp(`<\\s*(${safeTag})[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi');
-            text = text.replace(pairReg, '');
-
-            // 2. 开篇缺失开标签、仅有闭标签的孤立块排除
-            if (!new RegExp(`<\\s*${safeTag}[^>]*>`, 'i').test(text)) {
-                const orphanCloseReg = new RegExp(`^[\\s\\S]*?<\\/\\s*${safeTag}\\s*>\\s*`, 'i');
-                text = text.replace(orphanCloseReg, '');
+            if (!hasOpen.has(key) && hasClose.has(key)) {
+                text = text.replace(new RegExp(`^[\\s\\S]*?<\\/\\s*${safeTag}\\s*>\\s*`, 'i'), '');
             }
-
-            // 3. 末尾只有开标签但未闭合的残留块排除
-            if (!new RegExp(`<\\/\\s*${safeTag}\\s*>`, 'i').test(text)) {
-                const unclosedTailReg = new RegExp(`<\\s*${safeTag}[^>]*>[\\s\\S]*$`, 'i');
-                text = text.replace(unclosedTailReg, '');
+            if (hasOpen.has(key) && !hasClose.has(key)) {
+                text = text.replace(new RegExp(`<\\s*${safeTag}[^>]*>[\\s\\S]*$`, 'i'), '');
             }
         }
     }
@@ -404,6 +519,12 @@ function computeChapters(settings, chatLog) {
         const speaker = msg.name || (msg.is_user ? '你' : '旁白');
         chapters.push({ index: i, no, speaker, text });
     }
+    // 修剪清洗缓存中已不存在楼层的残留条目（删除中间楼层后索引前移，旧条目永不命中）
+    if (cleanTextCache.map.size > chatLog.length) {
+        for (const idx of cleanTextCache.map.keys()) {
+            if (idx >= chatLog.length) cleanTextCache.map.delete(idx);
+        }
+    }
     return chapters;
 }
 
@@ -423,24 +544,24 @@ function computeChapterMap(settings, chatLog) {
  */
 function buildNovelText(settings, chatLog) {
     const bookTitle = getBookTitle(settings);
-    let novelText = `《${bookTitle}》\n\n`;
+    const parts = [`《${bookTitle}》\n\n`];
     let chapterCount = 0;
 
     for (const ch of computeChapters(settings, chatLog)) {
         chapterCount++;
         const floor = ch.index + 1;
         if (settings.chapter_style === 'separator') {
-            novelText += `* * *\n\n${ch.text}\n\n\n`;
+            parts.push(`* * *\n\n${ch.text}\n\n\n`);
         } else if (settings.chapter_style === 'dialogue') {
-            novelText += `【${ch.speaker}】\n\n${ch.text}\n\n\n`;
+            parts.push(`【${ch.speaker}】\n\n${ch.text}\n\n\n`);
         } else if (settings.chapter_style === 'numbered') {
-            novelText += `第 ${ch.no} 节 · ${ch.speaker}\n\n${ch.text}\n\n\n`;
+            parts.push(`第 ${ch.no} 节 · ${ch.speaker}\n\n${ch.text}\n\n\n`);
         } else {
-            novelText += `第 ${ch.no} 章 · ${ch.speaker} (原楼层: ${floor})\n\n${ch.text}\n\n\n`;
+            parts.push(`第 ${ch.no} 章 · ${ch.speaker} (原楼层: ${floor})\n\n${ch.text}\n\n\n`);
         }
     }
 
-    return { bookTitle, novelText, chapterCount };
+    return { bookTitle, novelText: parts.join(''), chapterCount };
 }
 
 /**
@@ -740,7 +861,7 @@ function buildNovelPanel(deps) {
     }
 
     /* ---------- 连载 pane（design.md §1.4 序 1-6） ---------- */
-    panel.addNode('serial', createPanelHeading('fa-solid fa-book-bookmark', '连载设置', 'v2.0.0'));
+    panel.addNode('serial', createPanelHeading('fa-solid fa-book-bookmark', '连载设置', 'v2.1.0'));
 
     const serialStatus = createStatusLineRow('novel-serial-status', 'fa-solid fa-book-open', false);
     serialStatus.classList.add('novel-status-line');
@@ -825,7 +946,7 @@ function buildNovelPanel(deps) {
     });
 
     /* ---------- 过滤 pane（design.md §1.4 序 1-3） ---------- */
-    panel.addNode('filter', createPanelHeading('fa-solid fa-filter', '过滤设置', 'v2.0.0'));
+    panel.addNode('filter', createPanelHeading('fa-solid fa-filter', '过滤设置', 'v2.1.0'));
 
     let includeAcc = null;
     const includeField = createTagField({
@@ -883,7 +1004,7 @@ function buildNovelPanel(deps) {
     });
 
     /* ---------- 文件 pane（design.md §1.4 序 1-3） ---------- */
-    panel.addNode('file', createPanelHeading('fa-solid fa-file-lines', '文件与导出', 'v2.0.0'));
+    panel.addNode('file', createPanelHeading('fa-solid fa-file-lines', '文件与导出', 'v2.1.0'));
 
     let namingAcc = null;
     const namingSeg = createSegmented({
@@ -999,7 +1120,9 @@ function applyNovelUIRefresh() {
 function formatExportTime(d) {
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
-    return `今天 ${hh}:${mm}`;
+    const now = new Date();
+    const isToday = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    return isToday ? `今天 ${hh}:${mm}` : `${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mm}`;
 }
 
 /** 刷新「文件」页导出状态行 + 折叠组摘要 */
@@ -1045,7 +1168,8 @@ function exportNovelText() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // 延迟撤销：浏览器异步开始下载，同步 revoke 在 Firefox 下会取消本次下载
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
         console.warn('[AutoSaveTxt] 导出下载失败:', err);
         NVUI.showToast({ message: '导出失败：浏览器未能生成下载文件，请重试。', type: 'danger', duration: 3200 });
@@ -1117,16 +1241,19 @@ function bindNovelEvents() {
     if (event_types.GROUP_UPDATED) eventSource.on(event_types.GROUP_UPDATED, () => refreshNovelUI());
 }
 
-function init() {
-    const built = buildNovelPanel({
-        settings: getSettings(),
-        defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
-        save: () => { if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced(); },
-        refreshStatus: applyNovelUIRefresh,
-        onExport: exportNovelText
-    });
-    novelPanel = built.panel;
-    uiRefs = built.refs;
+async function init() {
+    // 等 Kit 资产就绪再建面板；CDN 与本地 vendor 双双失败时面板降级不可用，其余入口照常
+    if (await nvuiAssetsReady) {
+        const built = buildNovelPanel({
+            settings: getSettings(),
+            defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
+            save: () => { if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced(); },
+            refreshStatus: applyNovelUIRefresh,
+            onExport: exportNovelText
+        });
+        novelPanel = built.panel;
+        uiRefs = built.refs;
+    }
 
     // 魔法棒菜单项：立即就位 + 500ms 短轮询兜底宿主重绘（最多 20 次）
     injectWandEntry();
@@ -1141,10 +1268,15 @@ function init() {
 
     bindNovelEvents();
 
-    // 视口变化后重算 tabs 粘连指示器（Kit API 未绑 resize，业务补）
+    // 视口变化后重算 tabs 粘连指示器（Kit API 未绑 resize，业务补）；rAF 节流避免连续强制回流
     if (typeof window !== 'undefined') {
+        let resizeRaf = 0;
         window.addEventListener('resize', () => {
-            if (novelPanel) novelPanel.syncIndicator();
+            if (resizeRaf) return;
+            resizeRaf = requestAnimationFrame(() => {
+                resizeRaf = 0;
+                if (novelPanel) novelPanel.syncIndicator();
+            });
         });
     }
 

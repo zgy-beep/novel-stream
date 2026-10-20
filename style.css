@@ -1,8 +1,9 @@
 /**
  * novel-stream v2.0.0 插件样式表（SillyTavern 扩展）
  *
- * 设计基底：ui-kit（NVUI Kit v2.2.0）——本文件顶部两行 @import 引入 Kit 令牌与组件，
- * 业务侧只写 Kit 不提供的自定义表面与两处节奏补偿。
+ * 设计基底：ui-kit（NVUI Kit）——Kit 的 tokens.css / components.css 由 index.js 在运行时
+ * 注入（jsDelivr CDN 在线优先，本地 ui-kit/ vendor 兜底），本文件只写 Kit 不提供的
+ * 自定义表面与两处节奏补偿。
  *
  * 规则（Kit 红线，全文件强制执行）：
  *   1. 全部取值走 var(--nvui-*) 令牌或宿主 SmartTheme 变量，零颜色字面量；
@@ -10,8 +11,7 @@
  *   3. 深浅色 / 玻璃降级 / 动效降级由 Kit 全量处理，业务零分支。
  */
 
-@import url('./ui-kit/tokens.css');
-@import url('./ui-kit/components.css');
+/* Kit 令牌与组件样式由 index.js 运行时注入（CDN 在线优先 + 本地兜底），此处不再 @import */
 
 /* ==========================================================================
  * 1. 分段控件（章节格式 4 选 1 / 文件命名 2 选 1）

@@ -4,7 +4,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "zgy-beep",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "homePage": "https://github.com/zgy-beep/ST-auto-save-to-txt",
   "description": "每轮 AI 回复自动编排为规范小说章节，支持白 / 黑名单标签清洗与一键导出整本 TXT（NVUI Kit 界面）。"
 }
