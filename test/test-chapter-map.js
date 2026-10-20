@@ -30,6 +30,8 @@ function extract(name, re) {
 
 const ENGINE = [
     extract('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
+    extract('AUX_WORDS', /const AUX_WORDS = new Set\([^;]*\);/),
+    extract('isAuxiliaryTag', /function isAuxiliaryTag\(tagName\) \{[\s\S]*?\n\}/),
     extract('DEFAULT_SETTINGS', /const DEFAULT_SETTINGS = \{[\s\S]*?\n\};/),
     extract('parseTagList', /function parseTagList\(str\) \{[\s\S]*?\n\}/),
     extract('cleanNovelText', /function cleanNovelText\(rawText, settings = \{\}\) \{[\s\S]*?\n\}/),

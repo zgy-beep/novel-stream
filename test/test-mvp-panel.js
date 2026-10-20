@@ -22,6 +22,9 @@
  * 全屏遮挡物，断言 elementFromPoint 仍命中面板、真实鼠标点击仍能切 tab
  * （2026-10-20 实机冒烟确诊：非模态 dialog.show() 不进浏览器 top layer，
  *  载体无 z-index 档位时会被宿主正 z-index 表面整块盖住；沙盒无竞争故失明）。
+ * 另含 v2.2.0 会话标签检测器回归：扫描 chips / 一键增删名单 / 两侧互斥 /
+ * 「自动」徽标 / 渲染签名守门（节点同一性）/ 移动端触屏目标与换行
+ * （用户反馈：奇怪标签手打易错、手机端不便，故恢复 v1.x 检测器）。
  */
 
 const fs = require('fs');
@@ -67,6 +70,14 @@ function extractFn(name) {
     const m = src.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     return m ? m[0] : `/* ${name}: 缺失 */`;
 }
+function extractConst(name, re) {
+    const m = src.match(re);
+    if (!m) {
+        console.error(`[FAIL] index.js 中未找到 ${name} 定义（v2.2.0 实现是否漏搬？）`);
+        process.exit(1);
+    }
+    return m[0];
+}
 function extractConstObj(name) {
     const m = src.match(new RegExp(`const ${name} = \\{[\\s\\S]*?\\n\\};`));
     return m ? m[0] : `const ${name} = {};`;
@@ -77,7 +88,9 @@ const FNS = [
     'chatHasUserMessage', 'computeChapters', 'computeChapterMap',
     'sanitizeFilename', 'getAccountPrefix', 'getBookTitle', 'getBookFileName',
     'buildNovelText', 'composeNovelExport', 'getCurrentChatLog',
+    'isAuxiliaryTag', 'scanChatTags', 'toggleTagMembership',
     'faIcon', 'createPanelHeading', 'createStatusLineRow', 'createSegmented', 'createTagField',
+    'createTagDetector',
     'bindPanelFocusTrap', 'bindPanelArrowKeys', 'guardOverlayClick', 'buildNovelPanel',
     'formatExportTime', 'updateExportStatusLine', 'exportNovelText', 'applyNovelUIRefresh',
     'injectWandEntry', 'syncWandEntryState'
@@ -86,7 +99,9 @@ const FNS = [
 const PAGE_SRC = [
     extractConstObj('DEFAULT_SETTINGS'),
     'const cleanTextCache = { sig: \'\', map: new Map() };',
-    'const INLINE_TAGS = new Set([\'b\', \'i\', \'u\', \'s\', \'em\', \'strong\', \'span\', \'sub\', \'sup\', \'small\', \'del\', \'mark\']);',
+    extractConst('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
+    extractConst('SCAN_IGNORE_TAGS', /const SCAN_IGNORE_TAGS = new Set\([\s\S]*?\n\]\);/),
+    extractConst('AUX_WORDS', /const AUX_WORDS = new Set\([^;]*\);/),
     FNS
 ].join('\n\n');
 
@@ -115,8 +130,8 @@ const ctx = { chat: __chatLog(), characters: [{ name: '艾莉丝' }], this_chid:
 function __chatLog() {
     return [
         { is_user: true, name: '你', mes: '我们该出发了。' },
-        { is_user: false, name: '艾莉丝', mes: '<status>HP: 100</status>清晨的微风穿过树林，艾莉丝背上行囊。' },
-        { is_user: false, name: '艾莉丝', mes: '远处的钟声敲了七下。' }
+        { is_user: false, name: '艾莉丝', mes: '<status>HP: 100</status><story>清晨的微风穿过树林，艾莉丝背上行囊。</story>' },
+        { is_user: false, name: '艾莉丝', mes: '<thinking>她该带上地图。</thinking>远处的钟声敲了七下。<note>作者注：过渡段。</note>' }
     ];
 }
 
@@ -131,8 +146,11 @@ function saveSettingsDebounced() { __savedCount++; }
 const built = buildNovelPanel({
     settings: __settings,
     defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
+    scanTags: function () { return scanChatTags(ctx.chat); },
     save: function () { __savedCount++; },
-    refreshStatus: function () { __refreshCount++; },
+    // 与生产一致：refreshStatus 即 applyNovelUIRefresh（计数器只作附加观测）。
+    // 早期版本桩成纯计数器，导致检测器摘要 / chips 刷新链在测试里根本不走——保真度缺口。
+    refreshStatus: function () { __refreshCount++; applyNovelUIRefresh(); },
     onExport: function () { __exportCount++; }
 });
 novelPanel = built.panel;
@@ -314,6 +332,59 @@ window.__api = {
         a.querySelector('.nvui-btn.is-sm').click();
     },
 
+    /* ---- v2.2.0 会话标签检测器（design.md §3.4） ---- */
+    chips: function () {
+        return Array.from(document.querySelectorAll('.novel-chip')).map(function (c) {
+            const w = c.querySelector('.novel-chip-btn.is-include');
+            const b = c.querySelector('.novel-chip-btn.is-exclude');
+            return {
+                tag: c.getAttribute('data-tag'),
+                name: c.querySelector('.novel-chip-name').textContent,
+                count: c.querySelector('.novel-chip-count').textContent.trim(),
+                auto: !!c.querySelector('.novel-chip-auto'),
+                whiteOn: w.classList.contains('is-active'),
+                whitePressed: w.getAttribute('aria-pressed'),
+                blackOn: b.classList.contains('is-active'),
+                blackPressed: b.getAttribute('aria-pressed')
+            };
+        });
+    },
+    chipsEmpty: function () {
+        const e = document.querySelector('.novel-chips-empty');
+        return e ? e.textContent.trim() : '';
+    },
+    clickChipBtn: function (tag, action) {
+        const c = document.querySelector('.novel-chip[data-tag="' + tag + '"]');
+        const b = c && c.querySelector('.novel-chip-btn.is-' + action);
+        if (b) b.click();
+        return !!b;
+    },
+    captureChip: function (tag) {
+        window.__chipRef = document.querySelector('.novel-chip[data-tag="' + tag + '"]');
+    },
+    chipIdentity: function (tag) {
+        const c = document.querySelector('.novel-chip[data-tag="' + tag + '"]');
+        return { same: !!window.__chipRef && window.__chipRef === c };
+    },
+    chipsBox: function () {
+        const box = document.querySelector('.novel-chips');
+        return { wrap: getComputedStyle(box).flexWrap, overflow: getComputedStyle(box).overflowY };
+    },
+    chipsWrapRows: function () {
+        const tops = {};
+        Array.from(document.querySelectorAll('.novel-chip')).forEach(function (c) {
+            tops[Math.round(c.getBoundingClientRect().top)] = 1;
+        });
+        return Object.keys(tops).length;
+    },
+    chipBtnRect: function (tag, action) {
+        const c = document.querySelector('.novel-chip[data-tag="' + tag + '"]');
+        const b = c && c.querySelector('.novel-chip-btn.is-' + action);
+        b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); // chips 容器限高滚动：先滚入可视区再取坐标
+        const r = b.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
+    },
+
     /* ---- AC-13 开合持久化 ---- */
     accs: function () {
         return Array.from(document.querySelectorAll('.nvui-acc')).map(function (a) {
@@ -485,14 +556,14 @@ function checkTrue(name, cond) {
         console.log('\n=== ③ 内容排布（design.md §1.4）===');
         const heads = await dpage.evaluate(() => window.__api.headings());
         check('三个分区 heading 标题', heads.map((h) => h.title).join('|'), '连载设置|过滤设置|文件与导出');
-        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.1.0|v2.1.0|v2.1.0');
+        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.2.0|v2.2.0|v2.2.0');
         checkTrue('heading 均带 FA 图标', heads.every((h) => h.icon));
         check('连载 pane 子元素顺序（heading→状态行→feature开关→3 折叠组）',
             (await dpage.evaluate(() => window.__api.serialChildren())).join('|'),
             'nvui-panel-heading|nvui-status-line novel-status-line|nvui-switch-row is-feature|nvui-acc|nvui-acc|nvui-acc');
-        check('过滤 pane 子元素顺序（heading→2 折叠组）',
+        check('过滤 pane 子元素顺序（heading→3 折叠组：检测器/白/黑）',
             (await dpage.evaluate(() => window.__api.filterChildren())).join('|'),
-            'nvui-panel-heading|nvui-acc|nvui-acc');
+            'nvui-panel-heading|nvui-acc|nvui-acc|nvui-acc');
         check('文件 pane 子元素顺序（heading→2 折叠组）',
             (await dpage.evaluate(() => window.__api.fileChildren())).join('|'),
             'nvui-panel-heading|nvui-acc|nvui-acc');
@@ -503,7 +574,7 @@ function checkTrue(name, cond) {
         checkTrue('feature 开关 label 包裹 input（整行可点）', switches.every((s) => s.wrapsInput));
 
         const accs = await dpage.evaluate(() => window.__api.accs());
-        check('折叠组数量', accs.length, 7);
+        check('折叠组数量（连载 3 + 过滤 3 + 文件 2）', accs.length, 8);
         checkTrue('每个折叠组都有 summary（收起态唯一线索）', accs.every((a) => a.summary.length > 0));
         checkTrue('每个折叠组标题都带图标', accs.every((a) => a.hasIcon));
         check('默认全部收起（acc_open 为空）', await dpage.evaluate(() => window.__api.storedAccOpen()), '');
@@ -608,6 +679,59 @@ function checkTrue(name, cond) {
         await dpage.evaluate(() => { const s = document.getElementById('sheld'); if (s) s.remove(); });
         await dpage.evaluate(() => window.__api.clickTab('serial'));
         await dpage.waitForTimeout(50);
+
+        console.log('\n=== ⑥.6 v2.2.0 会话标签检测器（扫描 / 一键增删 / 互斥 / 签名守门）===');
+        // 2026-10-20 用户反馈「各种奇怪标签手写容易打错，手机端非常不方便」→ 恢复 v1.x 检测器：
+        // bootstrap 聊天含 status（默认黑名单命中）/ story（自定义）/ thinking（辅助）/ note（默认黑名单命中）
+        await dpage.evaluate(() => window.__api.setField('novel-include-tags', '')); // 脱离 ⑤⑥ 段残留状态
+        await dpage.evaluate(() => window.__api.clickTab('filter'));
+        await dpage.evaluate(() => window.__api.clickAcc('会话标签检测器'));
+        await dpage.waitForTimeout(60);
+        await dpage.evaluate(() => window.__api.refresh()); // 走生产同链：refreshStatus → applyNovelUIRefresh → chips 重渲染 + 摘要同步
+        const chips0 = await dpage.evaluate(() => window.__api.chips());
+        check('扫描出 4 个自定义标签（次数相同按字母序）', chips0.map((c) => c.tag).join(','), 'note,status,story,thinking');
+        check('chip 展示标签名与命中次数', chips0.map((c) => c.name + c.count).join(','), 'note×1,status×1,story×1,thinking×1');
+        check('thinking 打「自动」徽标（引擎已自动剔除）', chips0.find((c) => c.tag === 'thinking').auto, true);
+        check('story 不打「自动」徽标', chips0.find((c) => c.tag === 'story').auto, false);
+        check('status 初始命中默认黑名单', chips0.find((c) => c.tag === 'status').blackOn, true);
+        check('story 初始不在任何名单', chips0.find((c) => c.tag === 'story').whiteOn === false && chips0.find((c) => c.tag === 'story').blackOn === false, true);
+        check('激活态 aria-pressed 同步', chips0.find((c) => c.tag === 'status').blackPressed, 'true');
+        check('检测器 acc 摘要 = 扫描出的标签数', await dpage.evaluate(() => window.__api.accSummary('会话标签检测器')), '4 个标签');
+
+        await dpage.evaluate(() => window.__api.clickChipBtn('story', 'include'));
+        const chipsW = await dpage.evaluate(() => window.__api.chips());
+        check('点「白」后 chip 白钮激活', chipsW.find((c) => c.tag === 'story').whiteOn, true);
+        check('点「白」后 aria-pressed=true', chipsW.find((c) => c.tag === 'story').whitePressed, 'true');
+        check('settings.include_tags 写入', await dpage.evaluate(() => window.__api.settings().include_tags), 'story');
+        check('白名单输入框实时同步', await dpage.evaluate(() => document.getElementById('novel-include-tags').value), 'story');
+        check('白名单 acc 摘要同步', await dpage.evaluate(() => window.__api.accSummary('正文白名单')), 'story');
+
+        await dpage.evaluate(() => window.__api.clickChipBtn('story', 'exclude'));
+        const chipsB = await dpage.evaluate(() => window.__api.chips());
+        check('互斥：加黑后白钮熄灭', chipsB.find((c) => c.tag === 'story').whiteOn, false);
+        check('互斥：加黑后黑钮激活', chipsB.find((c) => c.tag === 'story').blackOn, true);
+        check('互斥：settings.include_tags 已移除 story', await dpage.evaluate(() => window.__api.settings().include_tags), '');
+        // 名单经 parseTagList 归一后以 ', ' 连接（与 v1.x toggleTagInList 同格式）
+        check('互斥：settings.exclude_tags 追加 story', await dpage.evaluate(() => window.__api.settings().exclude_tags),
+            'status, memory, details, variables, analysis, ooc, note, draft, system, log, story');
+
+        await dpage.evaluate(() => window.__api.clickChipBtn('story', 'exclude'));
+        check('再点「黑」取消', (await dpage.evaluate(() => window.__api.chips())).find((c) => c.tag === 'story').blackOn, false);
+
+        await dpage.evaluate(() => window.__api.clickChipBtn('status', 'include'));
+        const chipsS = await dpage.evaluate(() => window.__api.chips());
+        check('反向互斥：status 加白后自动移出黑名单', chipsS.find((c) => c.tag === 'status').blackOn, false);
+        check('反向互斥：settings.exclude_tags 移除 status', await dpage.evaluate(() => window.__api.settings().exclude_tags),
+            'memory, details, variables, analysis, ooc, note, draft, system, log');
+
+        // 渲染签名守门：扫描结果与名单均未变时 refresh 不得重建 DOM（否则用户连点会被打断）
+        await dpage.evaluate(() => window.__api.captureChip('status'));
+        await dpage.evaluate(() => window.__api.refresh());
+        checkTrue('无变化时 refresh 不重建 chips（节点同一性）', (await dpage.evaluate(() => window.__api.chipIdentity('status'))).same);
+        // 还原干净名单，避免污染 ⑩ 的 0 章用例与 ⑪ 导出
+        await dpage.evaluate(() => window.__api.setField('novel-include-tags', ''));
+        await dpage.evaluate(() => window.__api.resetDefaultTags());
+        await dpage.evaluate(() => window.__api.clickAcc('会话标签检测器')); // 收起，避免影响 ⑧ 开合持久化断言
 
         console.log('\n=== ⑦ AC-11 焦点（陷阱 + 归还）===');
         await dpage.evaluate(() => window.__api.focusOpener());
@@ -784,6 +908,21 @@ function checkTrue(name, cond) {
         await mpage.waitForTimeout(80);
         check('底部导航点击切到过滤 pane', await mpage.evaluate(() => window.__api.activePane()), 'filter');
         check('底部导航 aria-current 同步', await mpage.evaluate(() => window.__api.bottomNavAria()), '0:-|1:page|0:-');
+
+        /* ---- v2.2.0 检测器移动端：触屏目标 + 换行 + 真实 tap ---- */
+        await mpage.evaluate(() => window.__api.clickAcc('会话标签检测器'));
+        await mpage.waitForTimeout(60);
+        const mbox = await mpage.evaluate(() => window.__api.chipsBox());
+        check('chips 容器 flex-wrap=wrap', mbox.wrap, 'wrap');
+        checkTrue('chips 容器限高滚动（overflow-y=auto）', mbox.overflow === 'auto');
+        checkTrue('窄屏 chips 换行成多行', (await mpage.evaluate(() => window.__api.chipsWrapRows())) >= 2);
+        const mrect2 = await mpage.evaluate(() => window.__api.chipBtnRect('story', 'include'));
+        checkTrue('chip 钮触屏高度 ≥ 26px（可点）', mrect2.h >= 26);
+        checkTrue('chip 钮触屏宽度 ≥ 28px（可点）', mrect2.w >= 28);
+        await mpage.touchscreen.tap(mrect2.x, mrect2.y); // 真实触屏点击
+        await mpage.waitForTimeout(80);
+        check('触屏点「白」入白名单', await mpage.evaluate(() => window.__api.settings().include_tags), 'story');
+
         check('移动端全程无运行报错', mobileErrors.length === 0 ? 'none' : mobileErrors.join(' | '), 'none');
         await mctx.close();
     } finally {
@@ -796,7 +935,7 @@ function checkTrue(name, cond) {
         console.error('失败用例：' + failList.join('；'));
         process.exit(1);
     }
-    console.log('面板结构、标签同步、焦点、关闭、开合持久化、状态行、导出反馈、魔法棒入口全部符合预期');
+    console.log('面板结构、标签同步、焦点、关闭、开合持久化、状态行、导出反馈、会话标签检测器、魔法棒入口全部符合预期');
 })().catch((e) => {
     console.error('[FAIL] 测试执行异常：' + (e && e.stack || e));
     process.exit(1);

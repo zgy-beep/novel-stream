@@ -1,5 +1,5 @@
 /**
- * SillyTavern 小说连载阅读扩展 (Novel Stream) · v2.1.0
+ * SillyTavern 小说连载阅读扩展 (Novel Stream) · v2.2.0
  *
  * 一句话：把每一轮 AI 回复清洗、编排成规范小说章节，随时一键导出整本 TXT。
  *
@@ -9,7 +9,8 @@
  *   服务端落盘那一整套跨消息持久状态随之删除。
  * - UI 全面改用 NVUI Kit（CDN 在线优先 + vendor 于 ui-kit/ 兜底，见文件下方加载器）：
  *   NVUI.createPanel 装配「连载 / 过滤 / 文件」三分区设置面板，入口收敛为魔法棒菜单一项；
- *   悬浮药丸、楼层工具条、楼层徽标、会话标签检测器、过滤效果预览弹窗全部退役。
+ *   悬浮药丸、楼层工具条、楼层徽标、过滤效果预览弹窗全部退役
+ *   （会话标签检测器一度随 MVP 范围砍除，v2.2.0 应手机端快捷操作需求恢复，见下文）。
  * - 服务端插件（plugins/auto-save）退役：导出走纯前端 Blob 下载，不再有 404 / 413 场景。
  * - 设置键收敛为 Spec §6 的 9 键；旧键读取时忽略、不写迁移代码，老用户设置无缝继承。
  *
@@ -27,6 +28,14 @@
  *   z-index:30，聊天非空时）整块盖住——新增 --nvui-z-layer: 1000000 载体档位。
  *   CDN 用户待上游仓库推送后经 @2 锚点自动获得；离线用户随本版 vendor 兜底生效。
  *   面板测试新增「宿主 z-30 遮挡 + elementFromPoint + 真实鼠标点击」三重回归。
+ *
+ * v2.2.0 变更（2026-10-20，用户反馈「各种奇怪标签手打易错、手机端不便」恢复检测器）：
+ * - 「过滤」页恢复会话标签检测器：scanChatTags 扫描当前聊天自定义标签（跳过闭标签 /
+ *   注释 / DOCTYPE / HTML 结构标签），按出现次数降序渲染 chips，点「白 / 黑」一键
+ *   增删名单（两侧互斥，toggleTagMembership 纯函数），再次点击取消；思维链类标签打
+ *   「自动」徽标（与清洗引擎共用 isAuxiliaryTag 判定，防漂移）。
+ * - 渲染签名守门：扫描结果与两份名单均未变则跳过 DOM 重建，不打断用户连点。
+ * - chips 限高滚动、触屏可点目标；名单变更实时同步输入框与折叠组摘要。
  */
 
 import { getContext, extension_settings as ext_settings_raw } from '../../../extensions.js';
@@ -136,7 +145,7 @@ const saveSettingsDebounced = ctx.saveSettingsDebounced || ssd_raw;
 
 const EXTENSION_NAME = 'autoSaveTxt';
 const DEFAULT_SETTINGS = {
-    version: '2.0.0',                 // 设置结构版本（仅 stamped，无迁移分支）
+    version: '2.2.0',                 // 设置结构版本（仅 stamped，无迁移分支）
     enabled: true,                    // 小说连载总开关
     chapter_style: 'numbered_floor',  // 章节标题样式: numbered_floor / numbered / separator / dialogue
     naming_rule: 'char_chat',         // 文件命名规则: char_chat (角色名 - 对话名) / char_only (仅角色名)
@@ -307,6 +316,27 @@ function getBookFileName(settings) {
 
 const INLINE_TAGS = new Set(['b', 'i', 'u', 's', 'em', 'strong', 'span', 'sub', 'sup', 'small', 'del', 'mark']);
 
+// 标签扫描时忽略的 HTML 结构标签（这些不属于"自定义标签"，不展示在检测器中）
+const SCAN_IGNORE_TAGS = new Set([
+    ...INLINE_TAGS,
+    'html', 'head', 'body', 'div', 'p', 'br', 'hr', 'img', 'a',
+    'script', 'style', 'pre', 'code', 'ul', 'ol', 'li',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'table', 'thead', 'tbody', 'tr', 'td', 'th',
+    'font', 'center', 'blockquote', 'video', 'audio', 'source', 'iframe',
+]);
+
+// 思维链/草稿类标签名单：与清洗引擎共用同一判定（字母段完整命中才算），
+// 杜绝 <planets> / <airplane> / <cotton> 子串误伤；引擎与检测器漂移会致「自动」徽标说谎
+const AUX_WORDS = new Set(['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'cot', 'scratchpad', 'reflection', 'analysis', 'plan', 'planning']);
+
+/**
+ * 判断标签是否属于思维链/草稿类（会被清洗引擎全自动剔除，检测器据此打「自动」徽标）
+ */
+function isAuxiliaryTag(tagName) {
+    return String(tagName).toLowerCase().split(/[^a-z]+/).some((w) => AUX_WORDS.has(w));
+}
+
 /**
  * 解析标签名单字符串为标签数组（白名单/黑名单输入框共用，防止逻辑漂移）
  */
@@ -316,6 +346,66 @@ function parseTagList(str) {
         .split(/[,，\s]+/)
         .map(t => t.trim().replace(/^<|>$/g, ''))
         .filter(Boolean);
+}
+
+/**
+ * 扫描会话中出现过的自定义标签，按出现次数降序返回（供「会话标签检测器」展示）
+ * 闭标签 </tag> 与 DOCTYPE 天然不匹配；HTML 注释与 script/style 块先剥离——
+ * 其中被提及的「标签」只是文本不是真实内容标签（与 cleanNovelText 阶段三同口径）；
+ * details/summary 不排除（默认黑名单含 details）
+ * auxiliary 标记思维链/草稿类标签（引擎自动剔除，检测器打「自动」徽标，与引擎共用判定防漂移）
+ * 返回 { tags: [{ tag, count, auxiliary }], total }（全量不截断，展示层限高滚动承载）
+ */
+function scanChatTags(chatLog) {
+    const counts = new Map();
+    if (!Array.isArray(chatLog)) return { tags: [], total: 0 };
+    const tagRegex = /<\s*([a-zA-Z][a-zA-Z0-9_\-~.:#]*)[^>]*>/g;
+    for (const m of chatLog) {
+        const text = (m && typeof m.mes === 'string') ? m.mes : '';
+        if (!text) continue;
+        const stripped = text
+            .replace(/<!--[\s\S]*?-->/g, '')
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+        tagRegex.lastIndex = 0;
+        let match;
+        while ((match = tagRegex.exec(stripped)) !== null) {
+            const tag = match[1].toLowerCase();
+            if (SCAN_IGNORE_TAGS.has(tag)) continue;
+            counts.set(tag, (counts.get(tag) || 0) + 1);
+        }
+    }
+    const sorted = [...counts.entries()]
+        .map(([tag, count]) => ({ tag, count, auxiliary: isAuxiliaryTag(tag) }))
+        .sort((a, b) => (b.count - a.count) || a.tag.localeCompare(b.tag));
+    return { tags: sorted, total: sorted.length };
+}
+
+/**
+ * 检测器 chip 点击：把标签加入 / 移出白名单或黑名单（两侧互斥）
+ * 纯函数（可 node 测试）：只算名单，面板负责同步输入框 / 摘要 / 持久化，防逻辑漂移
+ */
+function toggleTagMembership(includeStr, excludeStr, tag, action) {
+    const t = String(tag || '').trim().toLowerCase();
+    if (!t) return { include_tags: includeStr || '', exclude_tags: excludeStr || '' };
+    let include = parseTagList(includeStr).map((x) => x.toLowerCase());
+    let exclude = parseTagList(excludeStr).map((x) => x.toLowerCase());
+    if (action === 'include') {
+        if (include.includes(t)) {
+            include = include.filter((x) => x !== t);
+        } else {
+            include.push(t);
+            exclude = exclude.filter((x) => x !== t);
+        }
+    } else {
+        if (exclude.includes(t)) {
+            exclude = exclude.filter((x) => x !== t);
+        } else {
+            exclude.push(t);
+            include = include.filter((x) => x !== t);
+        }
+    }
+    return { include_tags: include.join(', '), exclude_tags: exclude.join(', ') };
 }
 
 /**
@@ -353,9 +443,9 @@ function cleanNovelText(rawText, settings = {}) {
     }
 
     // 泛化剔除思考/思维链/草稿/规划标签：标签名拆成字母段后有完整段命中名单才算辅助标签
-    // （think_2 / agent-cot 等分隔变体照常识别），杜绝 <planets> / <airplane> / <cotton> 子串误伤
-    const AUX_WORDS = new Set(['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'cot', 'scratchpad', 'reflection', 'analysis', 'plan', 'planning']);
-    const isAuxTag = (tagName) => String(tagName).toLowerCase().split(/[^a-z]+/).some((w) => AUX_WORDS.has(w));
+    // （think_2 / agent-cot 等分隔变体照常识别），杜绝 <planets> / <airplane> / <cotton> 子串误伤。
+    // 判定与检测器共用模块级 isAuxiliaryTag（防漂移：「自动」徽标必须与引擎实际行为一致）
+    const isAuxTag = isAuxiliaryTag;
     const auxOpenRe = /<\s*([a-zA-Z][a-zA-Z0-9_\-~.:#]*)[^>]*>/gi;
 
     // 成对剔除：逐个找出辅助标签开标签，按真实标签名精确配对剔除
@@ -726,6 +816,85 @@ function createTagField(options) {
     return root;
 }
 
+/**
+ * 会话标签检测器（v2.2.0 恢复，design.md §3.4）：扫描当前聊天出现过的自定义标签，
+ * chips 点「白 / 黑」一键增删名单，免去手打（手机端尤其不便；怪标签也绝不会打错）
+ * options = { scanTags, getInclude, getExclude, onToggle, onSummary }
+ *   scanTags() -> { tags: [{tag,count,auxiliary}], total }
+ *   getInclude()/getExclude() -> 当前名单字符串（chip 激活态来源）
+ *   onToggle(tag, action) -> 面板完成设置持久化后回调（组件负责重渲染）
+ *   onSummary(total) -> 折叠组摘要同步（N 个标签 / 未检测到标签）
+ * 渲染签名守门：扫描结果与两份名单均未变则跳过 DOM 重建，避免用户连点时 DOM 被抽走
+ */
+function createTagDetector(options) {
+    const root = document.createElement('div');
+    root.className = 'novel-detector';
+    const chipsBox = document.createElement('div');
+    chipsBox.className = 'novel-chips';
+    chipsBox.id = 'novel_tag_chips';
+    root.appendChild(chipsBox);
+    let lastSig = '';
+
+    function render() {
+        const { tags, total } = options.scanTags();
+        const includeSet = new Set(parseTagList(options.getInclude()).map((t) => t.toLowerCase()));
+        const excludeSet = new Set(parseTagList(options.getExclude()).map((t) => t.toLowerCase()));
+        const sig = JSON.stringify(tags) + '|' + [...includeSet].join(',') + '|' + [...excludeSet].join(',');
+        if (typeof options.onSummary === 'function') options.onSummary(total);
+        if (sig === lastSig) return;
+        lastSig = sig;
+        chipsBox.textContent = '';
+        if (!tags.length) {
+            const empty = document.createElement('div');
+            empty.className = 'novel-chips-empty';
+            empty.textContent = '未检测到自定义标签——AI 回复中带 <标签> 的内容会自动出现在这里';
+            chipsBox.appendChild(empty);
+            return;
+        }
+        tags.forEach(({ tag, count, auxiliary }) => {
+            const chip = document.createElement('div');
+            chip.className = 'novel-chip';
+            chip.setAttribute('data-tag', tag);
+            const name = document.createElement('code');
+            name.className = 'novel-chip-name';
+            name.textContent = tag;
+            chip.appendChild(name);
+            const countEl = document.createElement('span');
+            countEl.className = 'novel-chip-count';
+            countEl.textContent = `×${count}`;
+            chip.appendChild(countEl);
+            if (auxiliary) {
+                const auto = document.createElement('span');
+                auto.className = 'novel-chip-auto';
+                auto.textContent = '自动';
+                auto.title = '思维链 / 草稿类标签，引擎已自动剔除，无需加入黑名单';
+                chip.appendChild(auto);
+            }
+            ['include', 'exclude'].forEach((action) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `novel-chip-btn is-${action}`;
+                btn.setAttribute('data-action', action);
+                btn.setAttribute('aria-label', `${action === 'include' ? '白名单' : '黑名单'}：${tag}`);
+                btn.textContent = action === 'include' ? '白' : '黑';
+                btn.title = action === 'include'
+                    ? '加入白名单：只保留该标签内的正文（再次点击取消）'
+                    : '加入黑名单：彻底剔除该标签块（再次点击取消）';
+                const on = action === 'include' ? includeSet.has(tag) : excludeSet.has(tag);
+                btn.classList.toggle('is-active', on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.addEventListener('click', () => options.onToggle(tag, action));
+                chip.appendChild(btn);
+            });
+            chipsBox.appendChild(chip);
+        });
+    }
+
+    root.render = render;
+    render();
+    return root;
+}
+
 /** 焦点陷阱：Tab / Shift+Tab 在面板可见控件间循环（aria-modal 的必要配套，design.md §7.2） */
 function bindPanelFocusTrap(panelEl) {
     panelEl.addEventListener('keydown', (e) => {
@@ -868,7 +1037,7 @@ function buildNovelPanel(deps) {
     }
 
     /* ---------- 连载 pane（design.md §1.4 序 1-6） ---------- */
-    panel.addNode('serial', createPanelHeading('fa-solid fa-book-bookmark', '连载设置', 'v2.1.0'));
+    panel.addNode('serial', createPanelHeading('fa-solid fa-book-bookmark', '连载设置', 'v2.2.0'));
 
     const serialStatus = createStatusLineRow('novel-serial-status', 'fa-solid fa-book-open', false);
     serialStatus.classList.add('novel-status-line');
@@ -952,10 +1121,42 @@ function buildNovelPanel(deps) {
         content: [stack(...mechRows)]
     });
 
-    /* ---------- 过滤 pane（design.md §1.4 序 1-3） ---------- */
-    panel.addNode('filter', createPanelHeading('fa-solid fa-filter', '过滤设置', 'v2.1.0'));
+    /* ---------- 过滤 pane（design.md §1.4 序 1-3；检测器 v2.2.0 恢复，design.md §3.4） ---------- */
+    panel.addNode('filter', createPanelHeading('fa-solid fa-filter', '过滤设置', 'v2.2.0'));
 
+    /* 会话标签检测器：扫描聊天自定义标签一键增删名单（免手打，手机端友好） */
     let includeAcc = null;
+    let excludeAcc = null;
+    let detectorAcc = null;
+    const detectorHint = document.createElement('span');
+    detectorHint.className = 'nvui-hint';
+    detectorHint.textContent = '自动扫描当前聊天里出现过的自定义标签：点「白」只保留该标签内的正文，点「黑」彻底剔除该标签块，再次点击取消。不必手打，手机端也能一键操作。';
+    const tagDetector = createTagDetector({
+        scanTags: deps.scanTags,
+        getInclude: () => settings.include_tags || '',
+        getExclude: () => settings.exclude_tags || '',
+        onToggle: (tag, action) => {
+            const next = toggleTagMembership(settings.include_tags, settings.exclude_tags, tag, action);
+            settings.include_tags = next.include_tags;
+            settings.exclude_tags = next.exclude_tags;
+            includeField.input.value = next.include_tags;
+            excludeField.input.value = next.exclude_tags;
+            deps.save();
+            if (includeAcc) includeAcc.setSummary(includeSummaryOf(next.include_tags));
+            if (excludeAcc) excludeAcc.setSummary(excludeSummaryOf(next.exclude_tags));
+            tagDetector.render();
+            deps.refreshStatus();
+        },
+        onSummary: (total) => {
+            if (detectorAcc) detectorAcc.setSummary(total > 0 ? `${total} 个标签` : '未检测到标签');
+        }
+    });
+    detectorAcc = panel.addAccordion('filter', {
+        title: '会话标签检测器',
+        summary: '未检测到标签',
+        content: [stack(detectorHint, tagDetector)]
+    });
+
     const includeField = createTagField({
         id: 'novel-include-tags',
         label: '正文白名单',
@@ -975,7 +1176,6 @@ function buildNovelPanel(deps) {
         content: [includeField]
     });
 
-    let excludeAcc = null;
     const excludeField = createTagField({
         id: 'novel-exclude-tags',
         label: '排除黑名单',
@@ -1011,7 +1211,7 @@ function buildNovelPanel(deps) {
     });
 
     /* ---------- 文件 pane（design.md §1.4 序 1-3） ---------- */
-    panel.addNode('file', createPanelHeading('fa-solid fa-file-lines', '文件与导出', 'v2.1.0'));
+    panel.addNode('file', createPanelHeading('fa-solid fa-file-lines', '文件与导出', 'v2.2.0'));
 
     let namingAcc = null;
     const namingSeg = createSegmented({
@@ -1052,6 +1252,7 @@ function buildNovelPanel(deps) {
     withAccIcon(styleAcc, 'fa-solid fa-heading');
     withAccIcon(userAcc, 'fa-solid fa-comment-dots');
     withAccIcon(mechAcc, 'fa-solid fa-wand-magic-sparkles');
+    withAccIcon(detectorAcc, 'fa-solid fa-tags');
     withAccIcon(includeAcc, 'fa-solid fa-tag');
     withAccIcon(excludeAcc, 'fa-solid fa-ban');
     withAccIcon(namingAcc, 'fa-solid fa-file-signature');
@@ -1059,6 +1260,7 @@ function buildNovelPanel(deps) {
     trackAccordion(styleAcc, 'style');
     trackAccordion(userAcc, 'user');
     trackAccordion(mechAcc, 'mech');
+    trackAccordion(detectorAcc, 'detector');
     trackAccordion(includeAcc, 'include');
     trackAccordion(excludeAcc, 'exclude');
     trackAccordion(namingAcc, 'naming');
@@ -1079,7 +1281,7 @@ function buildNovelPanel(deps) {
 
     return {
         panel,
-        refs: { serialStatus, exportStatus, exportAcc }
+        refs: { serialStatus, exportStatus, exportAcc, renderTagChips: () => tagDetector.render() }
     };
 }
 
@@ -1121,6 +1323,8 @@ function applyNovelUIRefresh() {
             uiRefs.serialStatus.setMeta('');
         }
     }
+    // 检测器 chips 随刷新重渲染（签名守门：无变化不重建 DOM，不会打断用户连点）
+    if (uiRefs.renderTagChips) uiRefs.renderTagChips();
     syncWandEntryState();
 }
 
@@ -1254,6 +1458,7 @@ async function init() {
         const built = buildNovelPanel({
             settings: getSettings(),
             defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
+            scanTags: () => scanChatTags(getCurrentChatLog()),
             save: () => { if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced(); },
             refreshStatus: applyNovelUIRefresh,
             onExport: exportNovelText

@@ -3,7 +3,7 @@
  *
  * 设计基底：ui-kit（NVUI Kit）——Kit 的 tokens.css / components.css 由 index.js 在运行时
  * 注入（jsDelivr CDN 在线优先，本地 ui-kit/ vendor 兜底），本文件只写 Kit 不提供的
- * 自定义表面与两处节奏补偿。
+ * 自定义表面（分段控件 / 标签字段 / 检测器 chips）与两处节奏补偿。
  *
  * 规则（Kit 红线，全文件强制执行）：
  *   1. 全部取值走 var(--nvui-*) 令牌或宿主 SmartTheme 变量，零颜色字面量；
@@ -80,7 +80,75 @@
 .nvui-tabpane > .novel-status-line { margin-bottom: var(--nvui-space-3); }
 
 /* ==========================================================================
- * 4. 魔法棒菜单项（宿主 #extensionsMenu 内的 DOM，design.md §9）
+ * 5. 会话标签检测器（v2.2.0 恢复，design.md §3.4）
+ *    Kit 无 chip / tag 组件；DOM 与交互语义由 index.js createTagDetector 生成
+ *    （aria-pressed 承载激活态，颜色仅辅助）。chips 限高滚动：几十个标签也不撑爆
+ *    面板；白 / 黑钮激活态用 accent 淡底 + 主色描边，与分段控件选中态同口径。
+ * ========================================================================== */
+.novel-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--nvui-space-2);
+    max-height: 236px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.novel-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--nvui-space-15);
+    padding: var(--nvui-space-1) var(--nvui-space-2) var(--nvui-space-1) var(--nvui-space-25);
+    border-radius: var(--nvui-radius-pill);
+    background: var(--nvui-block-bg);
+    border: 1px solid var(--nvui-block-line-2);
+}
+.novel-chip-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: var(--nvui-fs-md);
+    color: var(--nvui-text);
+}
+.novel-chip-count { font-size: var(--nvui-fs-2xs); color: var(--nvui-text-3); }
+.novel-chip-auto {
+    padding: 1px 6px;
+    border-radius: var(--nvui-radius-pill);
+    background: var(--nvui-accent-bg);
+    color: var(--nvui-accent-2);
+    font-size: var(--nvui-fs-2xs);
+}
+.novel-chip-btn {
+    min-height: 28px;                   /* 触屏可点目标（Kit control-h 32 的紧凑变体，chip 内不显臃肿） */
+    min-width: 30px;
+    padding: 0 var(--nvui-space-2);
+    border: none;
+    border-radius: var(--nvui-radius-sm);
+    background: var(--nvui-block-bg-2);
+    color: var(--nvui-text-2);
+    font-family: inherit;
+    font-size: var(--nvui-fs-sm);
+    font-weight: var(--nvui-fw-medium);
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color var(--nvui-transition), color var(--nvui-transition);
+}
+.novel-chip-btn:hover { background: var(--nvui-accent-bg-hover); color: var(--nvui-text); }
+.novel-chip-btn.is-active {
+    background: var(--nvui-accent-bg);
+    color: var(--nvui-text);
+    box-shadow: inset 0 0 0 1px var(--nvui-accent-line);
+}
+.novel-chip-btn:active { transform: scale(0.94); }
+.novel-chip-btn:focus-visible {
+    outline: var(--nvui-focus-ring-w) solid var(--nvui-focus-ring-color);
+    outline-offset: var(--nvui-focus-ring-offset);
+}
+.novel-chips-empty {
+    padding: var(--nvui-space-2) 0;
+    color: var(--nvui-text-3);
+    font-size: var(--nvui-fs-md);
+}
+
+/* ==========================================================================
+ * 6. 魔法棒菜单项（宿主 #extensionsMenu 内的 DOM，design.md §9）
  *    结构沿用 v1.x；只设强调色与状态副标，色源 = Kit 令牌 + 宿主主题变量。
  *    副标文字本身承载状态（连载中 / 已关闭），不靠颜色单独传达。
  * ========================================================================== */
