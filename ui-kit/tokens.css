@@ -1,7 +1,7 @@
 /**
  * SillyTavern 插件通用 UI Kit · 设计令牌（Design Tokens）
  * ------------------------------------------------------------------
- * 版本：ui-kit v2.2.0（语义化版本；破坏性改名/删 token 升大版本）
+ * 版本：ui-kit v2.3.0（语义化版本；破坏性改名/删 token 升大版本）
  * 许可：MIT（见同目录 LICENSE 文件）
  *
  * 本目录是**独立项目**：自带 package.json / LICENSE / CHANGELOG / test/，
@@ -235,7 +235,16 @@
     --nvui-panel-width: 880px;   /* 桌面面板最大宽度（内容区建议 640~880px） */
     --nvui-panel-max-h: 88vh;    /* 桌面面板最大高度（手机端自动切 92dvh 底部抽屉） */
 
-    /* ==================== 层级（top-layer 载体内部仍留 z-index 兜底） ==================== */
+    /* ==================== 层级 ====================
+     * 实测事实（勿凭直觉改，改前先读 components.css 第 2 节注释）：
+     *   - 非模态 dialog.show() 不进浏览器 top layer（只有 showModal() 进，
+     *     但其 inert 会废掉宿主交互，故 kit 禁用模态）；
+     *   - 因此层级完全由载体自身的 z-index 档位保证。
+     * 宿主表面竞争上限约 29999（酒馆 #sheld = 30，弹窗 = 29998），
+     * 四档均取 100 万以上的安全区，互不重叠：
+     *   layer（载体）= 1000000 < floating = 1000010 < overlay = 1000020 < tooltip = 1000030
+     */
+    --nvui-z-layer: 1000000;   /* top-layer 载体档：必须高于宿主一切正 z-index 表面 */
     --nvui-z-floating: 1000010;
     --nvui-z-overlay: 1000020;
     --nvui-z-tooltip: 1000030;

@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-nvui-kit",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "SillyTavern 插件通用 UI Kit「Flat Glass 扁平玻璃」：设计令牌、组件样式、动效体系与能力降级（零依赖，可整目录复制到任意插件或仓库复用）",
   "main": "nvui-api.js",
   "license": "MIT",

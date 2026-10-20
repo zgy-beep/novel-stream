@@ -1,14 +1,14 @@
 /**
- * SillyTavern UI Kit v2.2.0「Flat Glass」· 规范守护测试（独立项目）
+ * SillyTavern UI Kit v2.3.0「Flat Glass」· 规范守护测试（独立项目）
  * 运行方式（在本目录下）: node test/test-ui-kit.js（或 npm test）
  *
  * 本文件只读取本项目内的文件，不依赖任何外部仓库/父目录，因此
  * 整个 ui-kit 目录可以被任意移动后直接运行。
  *
  * 覆盖：
- *  0) 项目文件结构、package.json 版本/元数据（2.2.0 + Flat Glass）；
+ *  0) 项目文件结构、package.json 版本/元数据（2.3.0 + Flat Glass）；
  *  1) token 完整性：CORE_TOKENS 显式登记 tokens.css 全部令牌（防漏登记/防幽灵/防僵尸），
- *     深色 109 / 浅色覆盖 47，命名合法，README 全覆盖；
+ *     深色 110 / 浅色覆盖 47，命名合法，README 全覆盖；
  *  2) 配色规范：组件禁用硬编码颜色、颜色声明走 token、深/浅主题 WCAG AA、
  *     核心 token 金标准逐值锁定，以及 v2 新增的「玻璃 AA 合成对比度」验算
  *     （sRGB 逐通道 blend：宿主最坏情况 -> overlay-bg -> glass-bg / glass-bg-strong）；
@@ -23,6 +23,8 @@
  *     v2.1.0 新增：SillyTavern 插件面板布局标准（桌面居中面板 / 手机底部抽屉 + 底部导航）；
  *     v2.1.1 打磨：描边再减弱、输入框单圈 1.5px 焦点环、面板固定尺寸不跳变、浮层滚动条隐藏但可滚动；
  *     v2.2.0 新增：圆角玻璃去 1px 外框（柔光/投影成形）+ 设计调用 API（nvui-api.js）+ tokens.json + AI-GUIDE.md；
+ *     v2.3.0 修复：非模态 dialog.show() 不进 top layer 的载体层级 bug（新增 --nvui-z-layer 载体档位
+ *              + 宿主 z-30 遮挡回归断言 + 文档错误论断修正）；
  *  5) 作用域红线：无裸元素选择器、类名前缀、!important 数量与白名单；
  *  6) 预览页离线可用、深浅/实心/动效/API 演示、URL 参数（?theme=light / ?solid=1 / ?panel=1 / ?api=1）；
  *  7) 文档契约：14 章节、宿主/可访问性要点、v2 设计语言、10.3-10.7 迁移、面板布局标准、JS API/AI 指南、AUDIT.md、取值防漂移；
@@ -355,7 +357,7 @@ for (const [name, p] of Object.entries(REQUIRED_FILES)) {
 }
 const KIT_VERSION = pkg.version;
 check('package.json 版本为合法 semver（2.2.0）',
-    /^2\.2\.0$/.test(String(KIT_VERSION)), String(KIT_VERSION));
+    /^2\.3\.0$/.test(String(KIT_VERSION)), String(KIT_VERSION));
 check('package.json 声明 MIT 许可且与 LICENSE 文件一致',
     pkg.license === 'MIT' && /^MIT License/.test(license));
 check('package.json scripts.test 指向项目内测试（可 npm test）',
@@ -392,7 +394,7 @@ const allTokens = new Set(Object.keys(darkMap).concat(Object.keys(lightMap)).fil
 const definedTokens = new Set([...tokensClean.matchAll(/(--nvui-[\w-]+)\s*:/g)].map((m) => m[1]));
 
 /**
- * CORE_TOKENS：tokens.css v2.2.0 全部 109 个令牌的「显式固化清单」。
+ * CORE_TOKENS：tokens.css v2.3.0 全部 110 个令牌的「显式固化清单」。
  * 故意运行时从文件读取，防止令牌被静默删除/漏登记；新增令牌必须同步登记到这里。
  * 金标准（GOLDEN_*）另行锁定关键取值。
  */
@@ -420,13 +422,13 @@ const CORE_TOKENS = [
     '--nvui-enter-distance', '--nvui-skeleton-bg', '--nvui-skeleton-shine', '--nvui-control-h',
     '--nvui-switch-w', '--nvui-switch-h', '--nvui-switch-knob', '--nvui-switch-knob-offset',
     '--nvui-switch-knob-on', '--nvui-modal-width', '--nvui-modal-max-h',
-    '--nvui-panel-width', '--nvui-panel-max-h', '--nvui-z-floating',
-    '--nvui-z-overlay', '--nvui-z-tooltip',
+    '--nvui-panel-width', '--nvui-panel-max-h', '--nvui-z-layer',
+    '--nvui-z-floating', '--nvui-z-overlay', '--nvui-z-tooltip',
 ];
 const CORE_SET = new Set(CORE_TOKENS);
 
-check('CORE_TOKENS 显式登记 tokens.css 全量令牌（109 个且无重复）',
-    CORE_TOKENS.length === 109 && CORE_SET.size === 109,
+check('CORE_TOKENS 显式登记 tokens.css 全量令牌（110 个且无重复）',
+    CORE_TOKENS.length === 110 && CORE_SET.size === 110,
     `清单 ${CORE_TOKENS.length} 个 / 去重 ${CORE_SET.size} 个`);
 const notRegistered = [...definedTokens].filter((t) => !CORE_SET.has(t));
 check('tokens.css 定义的每个令牌都在 CORE_TOKENS 中（防漏登记）',
@@ -465,8 +467,8 @@ for (const [label, cssMap, jsonMap] of [['dark', darkMap, tokensJson.dark], ['li
         if (!(k in cssMap)) tokensJsonDrift.push(`${label}:${k} 多余`);
     }
 }
-check('tokens.json 与 tokens.css 解析结果逐值一致（dark 109 / light 47 覆盖）',
-    !!tokensJson.dark && Object.keys(tokensJson.dark).length === 109
+check('tokens.json 与 tokens.css 解析结果逐值一致（dark 110 / light 47 覆盖）',
+    !!tokensJson.dark && Object.keys(tokensJson.dark).length === 110
     && !!tokensJson.light && Object.keys(tokensJson.light).length === 47
     && tokensJson.version === KIT_VERSION
     && tokensJsonDrift.length === 0,
@@ -791,6 +793,25 @@ check('top-layer 载体子浮层恢复 pointer-events:auto',
     && /pointer-events:\s*auto/.test(componentsClean));
 check('top-layer 载体未 show() 时 display:none',
     /dialog\.nvui-tl:not\(\[open\]\)[^{]*\{\s*display:\s*none/.test(componentsClean));
+
+// ---- v2.3.0 新增：载体层级档位（非模态 dialog 无 top layer 提升，实机冒烟回归） ----
+// 实测真相：非模态 show() 不进浏览器 top layer（只有 showModal() 进，但其 inert 会废掉宿主
+// 交互，故 kit 禁用模态）；载体与普通 fixed div 层级平等，会被宿主正 z-index 表面整块盖住
+// （酒馆 #sheld = position:absolute; z-index:30）。沙盒无宿主层级竞争，必须用静态断言守护。
+check('载体声明 z-index: var(--nvui-z-layer)（非模态无 top layer 提升，档位即生命线）',
+    /z-index:\s*var\(--nvui-z-layer\)/.test(tlBodies));
+const zLayerVal = Number(darkMap['--nvui-z-layer']);
+const zFloatingVal = Number(darkMap['--nvui-z-floating']);
+check('--nvui-z-layer 档位高于宿主竞争上限（>= 30000）且严格低于 floating 档',
+    Number.isFinite(zLayerVal) && zLayerVal >= 30000 && zLayerVal < zFloatingVal,
+    `layer=${zLayerVal} / floating=${zFloatingVal}`);
+check('--nvui-z-layer 已在 README 层级表登记（含档位理由）',
+    /--nvui-z-layer/.test(readme) && /1000000/.test(readme));
+check('文档不再保留「由 dialog 提升渲染层级 / top layer 决定层级」错误论断',
+    !/由 dialog 提升渲染层级/.test(componentsClean)
+    && !/由浏览器 top layer 决定/.test(readme)
+    && !/由 dialog 提升渲染层级/.test(readme),
+    'components.css / README 仍含想当然的 top-layer 提层论断');
 
 // ---- 4.2 玻璃表面（backdrop-filter / 受光边 / 内高光） ----
 const GLASS_SURFACES = ['.nvui-overlay', '.nvui-modal', '.nvui-floating', '.nvui-tooltip', '.nvui-toast', '.nvui-glass'];
@@ -1475,10 +1496,10 @@ check('README 第 12 章面板布局标准：响应式规则 + 底部导航/抽�
     readmePanelMissing.length === 0, `缺少: ${readmePanelMissing.join(', ')}`);
 
 const readmeCountMissing = [];
-if (!/(?:109\s*个令牌|令牌[^\n]{0,16}109|109 令牌)/.test(readme)) readmeCountMissing.push('109 令牌计数');
+if (!/(?:110\s*个令牌|令牌[^\n]{0,16}110|110 令牌)/.test(readme)) readmeCountMissing.push('110 令牌计数');
 if (!/(?:78\s*个类名|78\s*个组件类|组件类[^\n]{0,16}78|78 类)/.test(readme)) readmeCountMissing.push('78 类计数');
 if (!/### 10\.5 v2\.0\.1\s*(?:→|->)\s*v2\.1\.0/.test(readme)) readmeCountMissing.push('### 10.5 v2.0.1 -> v2.1.0');
-check('README 更新 109 令牌 / 78 类计数并新增 ### 10.5 v2.0.1 -> v2.1.0 面板布局说明',
+check('README 更新 110 令牌 / 78 类计数并新增 ### 10.5 v2.0.1 -> v2.1.0 面板布局说明',
     readmeCountMissing.length === 0, `缺少: ${readmeCountMissing.join(', ')}`);
 check('README 记录 v2.1.1 打磨（### 10.6 迁移 + 1.5px 单圈焦点环 + 面板固定尺寸/滚动条说明）',
     /### 10\.6 v2\.1\.0\s*(?:→|->)\s*v2\.1\.1/.test(readme)
@@ -1492,6 +1513,12 @@ check('README 记录设计调用 API 与 AI 协作（nvui-api.js / tokens.json /
     && /NVUI\.(?:createPanel|showToast)/.test(readme));
 check('README 新增 ### 10.7 v2.1.1 -> v2.2.0 说明',
     /### 10\.7 v2\.1\.1\s*(?:→|->)\s*v2\.2\.0/.test(readme));
+check('README 新增 ### 10.8 v2.2.0 -> v2.3.0 载体层级修复说明（含 --nvui-z-layer 与实测真相）',
+    /### 10\.8 v2\.2\.0\s*(?:→|->)\s*v2\.3\.0/.test(readme)
+    && readme.includes('--nvui-z-layer')
+    && readme.includes('#sheld'));
+check('AI-GUIDE 硬约束 3 修正为「非模态不进 top layer + 载体自身 z-index 档位」',
+    /非模态.*top layer|载体自身/.test(aiGuide) && aiGuide.includes('--nvui-z-layer'));
 check('AI-GUIDE.md 覆盖 AI 协作指南关键词（SillyTavern / nvui-api / tokens.json / 提示词 / 验收 / 其它软件）',
     ['SillyTavern', 'nvui-api', 'tokens.json', '提示词', '验收', '其它软件']
         .every((k) => aiGuide.includes(k)));

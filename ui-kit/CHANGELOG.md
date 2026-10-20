@@ -6,6 +6,27 @@
 - 新增组件 / 新增 token（不破坏既有 DOM 与取值）：小版本（2.x.0）
 - 重命名类 / token、删除 token、修改 DOM 契约：大版本（x.0.0）
 
+## v2.3.0（2026-10-20）
+
+浮层载体层级修复：非模态 `dialog.show()` 实测不进浏览器 top layer，新增 `--nvui-z-layer` 载体档位（小版本；无破坏性变更）。
+
+**bug 背景（novel-stream 实机冒烟测试定位，2026-10-20）**
+
+- 沙盒测试无宿主层级竞争，集体失明；真实酒馆里 `#sheld`（聊天容器，`position:absolute; z-index:30`）在聊天非空时
+  整块盖住 kit 面板（鼠标点击被 `.mes` 拦截）；
+- 中性页对照实验（Edge 152）证实：`show()` 的 dialog 输给 `z-index:30` 的 div，`showModal()` 才赢——
+  top layer 只服务于模态对话框，而模态的 `inert` 会废掉宿主交互，故 kit 禁用；
+- 此前 README / CSS 注释中「由 dialog 提升渲染层级」「实际层级由浏览器 top layer 决定」为错误论断，本次一并修正。
+
+**修复**
+
+- 新增令牌 `--nvui-z-layer: 1000000`（载体档；宿主竞争上限约 29999，floating 1000010 / overlay 1000020 / tooltip 1000030 不变）；
+- `dialog.nvui-tl` 增加 `z-index: var(--nvui-z-layer)`；子浮层仍在载体的层叠上下文内按既有档位排位，行为不变；
+- 文档修正：README §6.6 层级表 / §7.3 载体行 / §8 红线 1 / 新增 §10.8 迁移说明、AI-GUIDE 硬约束 3、
+  `components.css` 第 2 节注释（改为实测真相）；
+- 测试新增「宿主 z-30 全屏遮挡物 + 面板 elementFromPoint 命中 + 载体 computed z-index = 1000000」回归断言
+  （共 229 条），token 总数门禁 109 → 110。
+
 ## v2.2.0（2026-10-17）
 
 描边精致化（修复 1px 圆角描边锯齿）+ 新增设计调用 API / 机器可读令牌 / AI 协作指南（小版本；无破坏性变更）。

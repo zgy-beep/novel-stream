@@ -20,6 +20,13 @@
  * - 标签清洗健壮性加固：辅助标签（think/plan/cot 等）改为「字母段完整命中名单」判定，
  *   杜绝 <planets> / <airplane> / <cotton> 子串误伤；排除标签 alternation 长标签在前，
  *   避免前缀遮蔽导致配对断裂；清洗缓存按 chatLog 长度修剪残留条目。
+ *
+ * v2.1.1 变更（2026-10-20，实机冒烟测试发现的 Kit 上游缺陷修复随版同步）：
+ * - vendor 副本整目录同步 NVUI Kit v2.3.0：非模态 dialog.show() 实测不进浏览器
+ *   top layer，Kit 载体此前无 z-index 档位，会被宿主正 z-index 表面（酒馆 #sheld，
+ *   z-index:30，聊天非空时）整块盖住——新增 --nvui-z-layer: 1000000 载体档位。
+ *   CDN 用户待上游仓库推送后经 @2 锚点自动获得；离线用户随本版 vendor 兜底生效。
+ *   面板测试新增「宿主 z-30 遮挡 + elementFromPoint + 真实鼠标点击」三重回归。
  */
 
 import { getContext, extension_settings as ext_settings_raw } from '../../../extensions.js';
@@ -34,7 +41,7 @@ import {
 /* ---------- NVUI Kit 资产加载（CDN 在线优先，本地 vendor 兜底） ---------- */
 // Kit 由上游独立维护且持续迭代（github.com/zgy-beep/ui-kit，语义化版本承诺：破坏性变更升大版本），
 // @2 锚点经 jsDelivr 自动跟随 2.x 最新，升级无需重新 vendor；CDN 不可达（离线 / 内网 / 挂起超时）
-// 时回退到随包 vendor 的 ./ui-kit/（锁定 v2.2.0），保证离线可用。
+// 时回退到随包 vendor 的 ./ui-kit/（锁定 v2.3.0），保证离线可用。
 // Kit 缺陷不修本地副本，一律提上游 issue（docs/decisions/OPEN-DECISIONS.md）。
 const NVUI_CDN_BASE = 'https://cdn.jsdelivr.net/gh/zgy-beep/ui-kit@2';
 const NVUI_LOAD_TIMEOUT = 10000; // CDN 挂起不阻塞启动：超时即回退本地 vendor

@@ -18,6 +18,10 @@
  * 页内直接链接 vendor 三件套（ui-kit/tokens.css + ui-kit/components.css + ui-kit/nvui-api.js；
  * 生产由 index.js 运行时注入，本测试绕过加载器直连，保证断网可跑），
  * 从 index.js 抽取真实面板函数执行（非手抄副本），断言全部走真实计算样式与真实事件派发。
+ * 另含 v2.1.1 宿主层级竞争回归：页内复刻酒馆 #sheld（position:absolute; z-index:30）
+ * 全屏遮挡物，断言 elementFromPoint 仍命中面板、真实鼠标点击仍能切 tab
+ * （2026-10-20 实机冒烟确诊：非模态 dialog.show() 不进浏览器 top layer，
+ *  载体无 z-index 档位时会被宿主正 z-index 表面整块盖住；沙盒无竞争故失明）。
  */
 
 const fs = require('fs');
@@ -569,6 +573,41 @@ function checkTrue(name, cond) {
         await dpage.evaluate(() => window.__api.clickBottomNav(0));
         await dpage.waitForTimeout(80);
         check('底部导航点击切到 serial', await dpage.evaluate(() => window.__api.activePane()), 'serial');
+
+        console.log('\n=== ⑥.5 v2.1.1 宿主层级竞争回归（酒馆 #sheld z-30 遮挡 + elementFromPoint + 真实鼠标点击）===');
+        // 2026-10-20 实机冒烟确诊：非模态 dialog.show() 不进浏览器 top layer（只有 showModal() 进，
+        // 但其 inert 会废掉宿主交互），载体此无 z-index 时被酒馆 #sheld（position:absolute;
+        // z-index:30，聊天容器）整块盖住，真实鼠标点击被 .mes 拦截。沙盒无宿主层级竞争，集体失明。
+        // 此处页内复刻该遮挡物，用 elementFromPoint + dpage.mouse 真实点击双重断言。
+        await dpage.evaluate(() => {
+            const sheld = document.createElement('div');
+            sheld.id = 'sheld';
+            sheld.style.cssText = 'position:absolute; inset:0; z-index:30; background:rgba(0,0,0,.02);';
+            document.body.appendChild(sheld);
+        });
+        await dpage.waitForTimeout(50);
+        const sheldHit = await dpage.evaluate(() => {
+            const tab = document.querySelector('.nvui-tab');
+            const r = tab.getBoundingClientRect();
+            const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return {
+                inPanel: !!el && !!el.closest('.nvui-panel'),
+                carrierZ: getComputedStyle(document.querySelector('dialog.nvui-tl')).zIndex
+            };
+        });
+        checkTrue('宿主 z-30 全屏遮挡物下 elementFromPoint 仍命中面板内元素', sheldHit.inPanel);
+        check('载体 computed z-index = 1000000（--nvui-z-layer 档位）', sheldHit.carrierZ, '1000000');
+        const tabBox = await dpage.evaluate(() => {
+            const t = document.querySelectorAll('.nvui-tab')[2]; // file
+            const r = t.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        await dpage.mouse.click(tabBox.x, tabBox.y); // 真实鼠标点击：被遮挡时会落到 #sheld 上、 pane 不切换
+        await dpage.waitForTimeout(80);
+        check('宿主 z-30 遮挡物下真实鼠标点击 tab 仍切 pane', await dpage.evaluate(() => window.__api.activePane()), 'file');
+        await dpage.evaluate(() => { const s = document.getElementById('sheld'); if (s) s.remove(); });
+        await dpage.evaluate(() => window.__api.clickTab('serial'));
+        await dpage.waitForTimeout(50);
 
         console.log('\n=== ⑦ AC-11 焦点（陷阱 + 归还）===');
         await dpage.evaluate(() => window.__api.focusOpener());

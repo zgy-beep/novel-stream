@@ -187,7 +187,7 @@ ST-auto-save-to-txt/
 ├── manifest.json             # SillyTavern 官方扩展清单定义
 ├── README.md                 # 项目使用与排障指南
 ├── .gitignore                # Git 忽略配置
-├── ui-kit/                   # NVUI Kit v2.2.0（CDN 在线优先时的本地离线兜底 vendor）
+├── ui-kit/                   # NVUI Kit v2.3.0（CDN 在线优先时的本地离线兜底 vendor）
 │   ├── tokens.css            # 设计令牌（间距 / 圆角 / 字号 / 过渡 / 焦点环）
 │   ├── components.css        # 组件样式（面板 / 标签 / 折叠组 / 状态行 / 开关 ...）
 │   ├── nvui-api.js           # 面板 / Toast / 折叠组 API

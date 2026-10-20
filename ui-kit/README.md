@@ -1,16 +1,16 @@
 # SillyTavern 插件 UI Kit · 设计规范
 
-> 版本：**v2.2.0**（语义化版本；破坏性改名/删 token 升大版本，新增组件/新增 token 升小版本，调 token 取值/动效打磨/反馈修复升补丁版本）
-> 来源：从 novel-stream 扩展（另一个 SillyTavern 插件）的浮动 UI（设置弹窗 / 悬浮入口 / 图片预览 / 提示层）中提炼，已在实际酒馆宿主（深/浅主题、桌面/手机）上验证；**v2.0.0 起升级为「Flat Glass（扁平玻璃）」设计语言**（扁平化 + 玻璃拟态 + 动效体系 + 能力降级）；**v2.0.1 玻璃更透、浮层描边更柔和、动效补强（16 关键帧）**；**v2.1.0 新增「SillyTavern 插件面板布局标准（桌面 / 手机）」（第 12 章）**；**v2.1.1 描边再减弱、焦点环单圈 1.5px、面板固定尺寸、隐藏滚动条**；**v2.2.0 描边精致化（圆角玻璃去外框 1px 描边，改柔光+阴影成形；ghost/空态/指示器去圆角描边；焦点环回到单圈 2px 整数像素）并新增可选 `nvui-api.js` 设计调用 API、`tokens.json` 机器可读令牌镜像与 `AI-GUIDE.md` AI 协作指南（第 13 章）**。
+> 版本：**v2.3.0**（语义化版本；破坏性改名/删 token 升大版本，新增组件/新增 token 升小版本，调 token 取值/动效打磨/反馈修复升补丁版本）
+> 来源：从 novel-stream 扩展（另一个 SillyTavern 插件）的浮动 UI（设置弹窗 / 悬浮入口 / 图片预览 / 提示层）中提炼，已在实际酒馆宿主（深/浅主题、桌面/手机）上验证；**v2.0.0 起升级为「Flat Glass（扁平玻璃）」设计语言**（扁平化 + 玻璃拟态 + 动效体系 + 能力降级）；**v2.0.1 玻璃更透、浮层描边更柔和、动效补强（16 关键帧）**；**v2.1.0 新增「SillyTavern 插件面板布局标准（桌面 / 手机）」（第 12 章）**；**v2.1.1 描边再减弱、焦点环单圈 1.5px、面板固定尺寸、隐藏滚动条**；**v2.2.0 描边精致化（圆角玻璃去外框 1px 描边，改柔光+阴影成形；ghost/空态/指示器去圆角描边；焦点环回到单圈 2px 整数像素）并新增可选 `nvui-api.js` 设计调用 API、`tokens.json` 机器可读令牌镜像与 `AI-GUIDE.md` AI 协作指南（第 13 章）**；**v2.3.0 修复浮层载体层级 bug——非模态 `dialog.show()` 实测不进浏览器 top layer，新增 `--nvui-z-layer: 1000000` 载体档位，否则会被宿主正 z-index 表面（酒馆 `#sheld` z-index:30）整块盖住**。
 > 定位：**独立项目 + SillyTavern 插件自有的 body 级浮动 UI**。本目录自带 `package.json` / `LICENSE` / `CHANGELOG` / `test/`，**不依赖任何外部仓库或父目录，可整目录复制/移动到任意文件夹或仓库**。不接管聊天区、原生抽屉等宿主区域（那些区域必须沿用酒馆主题变量）。
 > 演示：**[在线组件预览（GitHub Pages）](https://zgy-beep.github.io/ui-kit/preview.html)**（免下载直接体验；可切换深/浅主题与实心/玻璃模式、演示面板布局）。
 
 | 文件 | 作用 |
 | :--- | :--- |
-| [`tokens.css`](tokens.css) | 设计令牌：表面/玻璃/焦点环/配色、字号、间距、圆角、阴影、动效、层级、组件尺寸、面板尺寸；含深色默认值（109 个）与 `.nvui-theme-light` 浅色覆盖（47 个） |
+| [`tokens.css`](tokens.css) | 设计令牌：表面/玻璃/焦点环/配色、字号、间距、圆角、阴影、动效、层级、组件尺寸、面板尺寸；含深色默认值（110 个）与 `.nvui-theme-light` 浅色覆盖（47 个） |
 | [`components.css`](components.css) | 通用组件样式（v2：扁平区块 + 浮层玻璃 + 动效系统 + 能力降级）；全部 `nvui-` 前缀，颜色只引用 token |
 | [`nvui-api.js`](nvui-api.js) | **可选**的零依赖运行时 JS API（v2.2.0 新增）：`createPanel` / `showToast` / `switchRow` / `inputRow` / `accordion` / `progress` 等，生成符合面板布局标准与无障碍契约的 DOM；Node 下 require 不访问 DOM |
-| [`tokens.json`](tokens.json) | `tokens.css` 的机器可读镜像（v2.2.0 新增）：`dark` 109 个 / `light` 47 个覆盖，供其它软件、构建工具与 AI 读取 |
+| [`tokens.json`](tokens.json) | `tokens.css` 的机器可读镜像（v2.2.0 新增）：`dark` 110 个 / `light` 47 个覆盖，供其它软件、构建工具与 AI 读取 |
 | [`AI-GUIDE.md`](AI-GUIDE.md) | 给 AI 的协作指南（v2.2.0 新增）：硬约束、读文件顺序、SillyTavern 插件面板标准流程、其它软件移植规范、提示词模板、API 速查、验收清单 |
 | [`preview.html`](preview.html) | 离线组件预览页（双击即可打开；可切换深/浅主题与实心/玻璃模式，支持 URL 参数 `?theme=light`、`?solid=1`；在线版见上方演示） |
 | [`test/test-ui-kit.js`](test/test-ui-kit.js) | 规范守护测试（token 完整性 / 三方覆盖 / 无硬编码颜色 / WCAG AA 与玻璃合成对比度 / 宿主兼容红线 / 金标准取值 / 动效与降级红线）；`npm test` 或 `node test/test-ui-kit.js` |
@@ -45,10 +45,10 @@
 - 一套**自包含、主题可切换的浮动 UI 设计系统**：弹窗、标签页、折叠分组、胶囊开关、按钮、输入行、提示/告警、状态行、徽标、空态、骨架屏、进度条、吐司、悬浮面板等。
 - 一套 **Flat Glass（扁平玻璃）设计系统**：静态区块只用色阶与间距表达层级（不描边、不投影、不渐变），浮层（弹窗 / 遮罩 / 悬浮面板 / 工具提示 / 吐司 / `.nvui-glass`）用半透明磨砂玻璃 + 受光边 + 内高光；**无 JS 运行时、纯 CSS**，组件 + 动画 + 降级都在 CSS 内完成，交互由业务用少量原生 JS 按约定的 DOM/状态类驱动。
 - 一套 **SillyTavern 插件面板布局标准**（v2.1.0 新增）：电脑居中玻璃面板 / 手机底部抽屉 + 底部图标导航，同一份 DOM 随 600px 断点自动切换；只参考常见插件面板的排列结构，视觉沿用 Kit 的紫色 Flat Glass（见第 12 章）。
-- 一套**可调用的设计接口与 AI 协作资产**（v2.2.0 新增）：可选 `nvui-api.js`（零依赖 JS API，自动生成合规 DOM 与 a11y）、`tokens.json`（109/47 机器可读令牌镜像）、`AI-GUIDE.md`（给 AI 的硬约束 / 读文件顺序 / 提示词模板 / 验收清单），见第 13 章。
+- 一套**可调用的设计接口与 AI 协作资产**（v2.2.0 新增）：可选 `nvui-api.js`（零依赖 JS API，自动生成合规 DOM 与 a11y）、`tokens.json`（110/47 机器可读令牌镜像）、`AI-GUIDE.md`（给 AI 的硬约束 / 读文件顺序 / 提示词模板 / 验收清单），见第 13 章。
 - 一套**可复制的实现**：下一个插件把本目录整个拷过去，`@import` 两个 CSS 即可用；无需构建工具、无第三方依赖。
 - 一个**独立项目**：目录内自带元信息、许可、变更记录、预览页、架构审核报告与测试，可整体移动到任意文件夹/仓库；`cd` 进目录后 `npm test` 即可独立验证。
-- 一套**有守护的规范**：`test/test-ui-kit.js` 自动检查 token 是否齐全、组件是否被预览/文档覆盖、是否泄漏裸选择器、是否硬编码颜色、对比度是否达标（含玻璃层最坏宿主背景下的合成对比度）、核心取值是否与金标准一致、16 个关键帧是否都被引用、109 个令牌与 78 个组件类是否全覆盖、降级块是否在位。
+- 一套**有守护的规范**：`test/test-ui-kit.js` 自动检查 token 是否齐全、组件是否被预览/文档覆盖、是否泄漏裸选择器、是否硬编码颜色、对比度是否达标（含玻璃层最坏宿主背景下的合成对比度）、核心取值是否与金标准一致、16 个关键帧是否都被引用、110 个令牌与 78 个组件类是否全覆盖、降级块是否在位。
 - 一套**可降级的动效体系**：动效只表达层级/方向/因果，全部尊重 `prefers-reduced-motion`；玻璃能力缺失、用户减少透明度、强制颜色模式、窄屏低性能设备均有明确回退。
 
 **不是什么**
@@ -377,7 +377,7 @@ head.addEventListener('click', () => {
 
 ## 4. 配色规范
 
-> `tokens.css` 共定义 **109 个** `--nvui-*` 令牌（深色默认，含 v2.0.x 新增的玻璃 7 / 焦点环 3 / 动效 12 / 骨架屏 2 / `--nvui-radius-xl` / `--nvui-on-accent`，以及 v2.1.0 新增的面板尺寸 2：`--nvui-panel-width` / `--nvui-panel-max-h`），`.nvui-theme-light` 覆盖其中 **47 个**（含必须覆盖的 `--nvui-focus-ring-color`）。深/浅主题的玻璃、遮罩、阴影取值都经过合成对比度验算。
+> `tokens.css` 共定义 **110 个** `--nvui-*` 令牌（深色默认，含 v2.0.x 新增的玻璃 7 / 焦点环 3 / 动效 12 / 骨架屏 2 / `--nvui-radius-xl` / `--nvui-on-accent`，v2.1.0 新增的面板尺寸 2：`--nvui-panel-width` / `--nvui-panel-max-h`，以及 v2.3.0 新增的层级 1：`--nvui-z-layer`），`.nvui-theme-light` 覆盖其中 **47 个**（含必须覆盖的 `--nvui-focus-ring-color`）。深/浅主题的玻璃、遮罩、阴影取值都经过合成对比度验算。
 
 ### 4.1 深色主题令牌（默认，`:root` / `.nvui-scope`）
 
@@ -721,11 +721,12 @@ v2.0.0 起，阴影只允许出现在浮层（弹窗 / 悬浮面板 / 工具提�
 
 | Token | 值 | 用途 |
 | :--- | :--- | :--- |
+| `--nvui-z-layer` | `1000000` | **top-layer 载体档**（`dialog.nvui-tl` 自身）。非模态 `show()` 不进浏览器 top layer，层级完全由本档位保证；必须高于宿主一切正 z-index 表面（酒馆竞争上限约 29999） |
 | `--nvui-z-floating` | `1000010` | 悬浮入口 / 悬浮面板 |
 | `--nvui-z-overlay` | `1000020` | 弹窗遮罩 |
 | `--nvui-z-tooltip` | `1000030` | 工具提示、吐司堆栈（最上层） |
 
-> top-layer 载体内的实际层级由浏览器 top layer 决定；这些 z-index 是给"未走 dialog 载体"或旧内核的兜底。吐司堆栈使用 `--nvui-z-tooltip`，但仍建议放进 `dialog.nvui-tl` 顶层载体（见 [7.14](#714-吐司)）。
+> **实测真相（勿凭直觉改）**：非模态 `dialog.show()` 不进浏览器 top layer——top layer 只服务于 `showModal()` 的模态对话框（其 `inert` 会废掉宿主交互，故 kit 禁用）。载体的实际层级由它自身的 `z-index: var(--nvui-z-layer)` 决定，与普通 fixed div 平等；酒馆 `#sheld`（`position:absolute; z-index:30`）会整块盖住没有档位的载体。吐司堆栈使用 `--nvui-z-tooltip`，放进 `dialog.nvui-tl` 载体（见 [7.14](#714-吐司)）。
 
 ---
 
@@ -780,7 +781,7 @@ v2.0.0 起，阴影只允许出现在浮层（弹窗 / 悬浮面板 / 工具提�
 
 | 类名 | 说明 |
 | :--- | :--- |
-| `dialog.nvui-tl` | top-layer 载体：fixed 铺满视口（`100dvh`）、`pointer-events: none`、未 `show()` 时 `display:none`；子浮层恢复 `pointer-events: auto` |
+| `dialog.nvui-tl` | top-layer 载体：fixed 铺满视口（`100dvh`）、`z-index: var(--nvui-z-layer)`（非模态无 top layer 提升，档位即生命线）、`pointer-events: none`、未 `show()` 时 `display:none`；子浮层恢复 `pointer-events: auto` |
 | `.nvui-overlay` | 全屏遮罩：flex 居中、`--nvui-overlay-bg` 底 + 磨砂模糊（`--nvui-glass-blur-sm`）；`hidden` 属性即可隐藏 |
 | `.nvui-modal` | 弹窗本体：`--nvui-glass-bg` 玻璃、`--nvui-radius-xl` 圆角、`--nvui-shadow-modal`；**v2.2.0 起移除圆角外框 1px 描边**（改用柔和顶部受光 + 阴影成形，避免锯齿） |
 | `.nvui-modal-header` | 头部：标题 + 右侧操作区，底部**直线分隔**（`--nvui-glass-line`，1px 直线不生锯齿），不可被压缩 |
@@ -1088,7 +1089,7 @@ function setupTabsIndicator(nav) {
 | `.nvui-toast.is-success` / `.is-warn` / `.is-danger` | 改图标颜色（语义） |
 | `.nvui-toast-stack` | 堆栈容器：`position:fixed` 右下、`z-index: var(--nvui-z-tooltip)`、`pointer-events:none`（子吐司恢复 `auto`）、`bottom: calc(var(--nvui-space-4) + env(safe-area-inset-bottom))` |
 
-**放 top-layer 载体的要求**：`nvui-toast-stack` 必须是 `position:fixed`，而酒馆 `html` 上存在 `transform`，直接挂 body 会被包含块推到错误位置。因此**必须把 `.nvui-toast-stack` 放进 `dialog.nvui-tl` 顶层载体里**（与弹窗共用一个载体或单独一个常驻载体均可，但同一时刻只提升必要的载体）。窄屏时堆栈贴右下更近（space-2 + 安全区）。
+**放 top-layer 载体的要求**：`.nvui-toast-stack` 是 `position:fixed`，**必须放进 `dialog.nvui-tl` 载体里**（与弹窗共用一个载体或单独一个常驻载体均可，但同一时刻只 `show()` 必要的载体）。原因有二：① 部分酒馆版本 `html` 带 `transform`，fixed 包含块会变成文档盒子，直接挂 body 位置错乱（实测当前版本为 `none`，但不依赖宿主版本）；② 非模态 dialog 无 top layer 提升，宿主正 z-index 表面（如 `#sheld` z-index:30）会盖住无档位容器——载体自带 `--nvui-z-layer` 档位，堆栈在载体的层叠上下文内再用 `--nvui-z-tooltip` 排位。窄屏时堆栈贴右下更近（space-2 + 安全区）。
 
 业务 JS 建议配方：
 
@@ -1174,9 +1175,10 @@ function replay(el, cls) {
 
 以下每条都来自 novel-stream 在真实酒馆（桌面 / 手机 / Docker / 浅色主题）上踩过的坑，**下个插件请直接照做**：
 
-1. **body 级浮层必须进 `<dialog class="nvui-tl">` top-layer 载体，并用非模态 `show()`。**
-   - 酒馆 `html` 上有 `transform`，`position:fixed` 的包含块会变成文档盒子，手机端浮层被顶出屏幕；
+1. **body 级浮层必须进 `<dialog class="nvui-tl">` 载体，并用非模态 `show()`。**
+   - 部分酒馆版本 `html` 上有 `transform`，`position:fixed` 的包含块会变成文档盒子，手机端浮层被顶出屏幕（实测当前版本为 `none`，但不依赖宿主版本）；
    - `showModal()` 会给文档加 `inert`，悬浮入口/其它弹窗全部点不到；
+   - **非模态 `show()` 不进浏览器 top layer**，层级完全由载体自身 `z-index: var(--nvui-z-layer)`（1000000，压过宿主竞争上限约 29999）保证——酒馆 `#sheld`（z-index:30）会整块盖住没有档位的载体，这是 2026-10 实机冒烟测出的真 bug；
    - 载体 `pointer-events:none`，子浮层（`.nvui-overlay` / `.nvui-floating` / `.nvui-toast-stack`）恢复 `auto`；
    - 未 `show()` 的 dialog 是 `display:none`，关闭时用 `close()` 或切 `hidden`。
 2. **所有 checkbox 必须隔离宿主样式。** 酒馆给每个 `input[type=checkbox]` 挂了 `appearance:none; display:grid` + `::before` 对勾（clip-path + inset box-shadow）。自定义开关必须 `appearance:none` + 显式宽高 + 压掉 `::before`（`content:none !important; display:none !important`），否则会出现"蓝色尖角/勾选态不可见"。kit 的 `.nvui-switch-row` 已内置。
@@ -1185,7 +1187,7 @@ function replay(el, cls) {
 5. **移动端三件事**：`100dvh` / `safe-area-inset-bottom`；弹窗正文 `-webkit-overflow-scrolling: touch`；打开弹窗时若键盘弹起，位置/滚动要复算（监听 `visualViewport`）。
 6. **不要用 emoji 当图标。** 用 Font Awesome（`<i class="fa-solid fa-...">`）或纯 CSS 图形；仓库历史上统一清理过 emoji。
 7. **动效可降级。** 必须尊重 `prefers-reduced-motion`（kit 已内置全局降级，且会清掉 `animation-delay`，避免 stagger 子项延迟残留）；不要把关键信息只放在动画里。**若本机/系统开启了「减少动态效果」，你会看到所有动效都被降级为 0.01ms（这是无障碍红线，不是 bug）**；`preview.html` 顶部的「强制播放动效」开关（`body.pv-force-motion` / URL 参数 `?motion=1`）只用于演示，生产环境请尊重系统偏好（见 [2.6](#26-动效降级与强制播放动效演示开关)）。
-8. **一次只提升一个 top-layer 载体。** 多个 dialog 载体可共存，但同一时刻只显示必要的；浮层之间用 `hidden` 切换而不是重复创建 DOM。
+8. **同一时刻只 `show()` 一个载体。** 多个 dialog 载体可共存，但同一时刻只显示必要的；浮层之间用 `hidden` 切换而不是重复创建 DOM。
 9. **`backdrop-filter` 玻璃的兼容、性能与降级（v2 新增红线）。**
    - **前缀**：每个 `backdrop-filter` 声明必须同时写 `-webkit-backdrop-filter`（Safari / 旧 WebKit 内核），两者顺序不能反；
    - **性能**：`backdrop-filter` 是合成阶段的高开销效果，只用于小面积浮层；不要给全屏静态区块用；弹窗/遮罩同时叠玻璃时窄屏自动降档到 `--nvui-glass-blur-sm`；避免在动画中改变 `blur` 半径（会导致每帧重采样），改透明度/位移即可；
@@ -1396,12 +1398,36 @@ v2.2.0 是**小版本**：调整描边 token 与描边实现方式，并新增�
 3. 其它软件 / AI 协作：先读 [`AI-GUIDE.md`](AI-GUIDE.md)，需要结构化令牌数据读 [`tokens.json`](tokens.json)（勿手改，源是 `tokens.css`）；
 4. 运行 `npm test`（测试已同步 2.2.0：新增文件门禁 + 描边无锯齿断言）。
 
+### 10.8 v2.2.0 → v2.3.0 浮层载体层级修复（新增 `--nvui-z-layer`）
+
+v2.3.0 是**小版本**：修复一个靠沙盒测试发现不了、只在真实宿主暴露的层级 bug，并新增 1 个令牌；**无删除 / 重命名类与 token、无破坏性 DOM 变更**（109 → 110 令牌 / 47 浅色 / 78 类 / 16 关键帧），覆盖 CSS 即可升级。
+
+**bug 真相（2026-10 novel-stream 实机冒烟测试定位）**
+
+- 非模态 `dialog.show()` **不进浏览器 top layer**——top layer 只服务于 `showModal()` 的模态对话框（其 `inert` 会废掉宿主交互，故 kit 禁用模态）。此前 README / 注释宣称载体「借 dialog 提升渲染层级」「实际层级由 top layer 决定」，均为想当然的错误论断；
+- 载体与普通 fixed div 层级平等，会被宿主任何正 z-index 表面整块盖住：酒馆 `#sheld`（聊天容器，`position:absolute; z-index:30`）在聊天非空时盖死整个 kit 面板（沙盒测试无宿主层级竞争，集体失明）；
+- 中性页对照实验（Edge 152）：`show()` 的 dialog 输给 `z-index:30` 的 div，`showModal()` 才赢——进一步印证模态才进 top layer。
+
+| 变更 | v2.2.0 | v2.3.0 | 影响 / 说明 |
+| :--- | :--- | :--- | :--- |
+| 载体层级 | 无 z-index（错误地依赖「dialog 提升层级」） | `z-index: var(--nvui-z-layer)`（`1000000`） | 压过宿主竞争上限（约 29999）；子浮层仍在载体的层叠上下文内按 floating / overlay / tooltip 排位 |
+| 新增令牌 | 无 | `--nvui-z-layer: 1000000`（载体档，低于 floating 1000010） | 令牌总数 109 → 110；浅色主题不覆盖（层级与主题无关） |
+| 文档论断 | 「top layer 决定层级」「酒馆 html 有 transform 所致」 | 改为实测真相 + 档位机制说明（§6.6 / §7.3 / §8 红线 1 / AI-GUIDE 硬约束 3） | 防止后续消费者重复踩坑 |
+| 测试 | 无宿主遮挡场景 | 新增「宿主 z-30 遮挡物 + 面板 elementFromPoint 命中」回归断言 | 沙盒里复刻 `#sheld` 竞争 |
+
+升级动作：
+
+1. 覆盖 `tokens.css` / `components.css`（新增 1 个 token、载体加 1 行 z-index，无破坏性）；
+2. 若业务自己写过 body 级浮层：确认它在 `dialog.nvui-tl` 载体内，或自带 ≥ 30000 的 z-index；
+3. 运行 `npm test`（测试已同步 2.3.0：token 110 + 载体层级回归断言）。
+
 ---
 
 ## 11. 版本管理
 
-- 当前 **v2.2.0**（2026-10-17）：**描边精致化**——圆角玻璃外框（弹窗/面板/悬浮/提示/吐司/`.nvui-glass`）不再画 1px 描边（改柔和顶部受光 + 阴影，消除圆角锯齿），直线分隔改用 `--nvui-glass-line`（深 0.06 / 浅 0.28），ghost 无描边、空态无虚线、标签指示器改底部直线，焦点环回到**单圈 2px 整数像素**；**新增可选 `nvui-api.js` 设计调用 API、`tokens.json` 机器可读令牌镜像、`AI-GUIDE.md` AI 协作指南（第 13 章）**；109 令牌 / 47 浅色 / 78 类 / 16 关键帧不变，无破坏性变更（小版本）。
+- 当前 **v2.3.0**（2026-10-20）：**浮层载体层级修复**——非模态 `dialog.show()` 实测不进浏览器 top layer（只有 `showModal()` 进，但其 `inert` 会废掉宿主交互），载体此前无 z-index，会被宿主正 z-index 表面（酒馆 `#sheld` z-index:30，聊天非空时）整块盖住；新增 `--nvui-z-layer: 1000000` 载体档位并修正文档中「dialog 提升渲染层级」的错误论断；110 令牌 / 47 浅色 / 78 类 / 16 关键帧，无破坏性变更（小版本）。
 - 变更记录（倒序）：
+  - **v2.3.0**：新增 `--nvui-z-layer: 1000000`（`dialog.nvui-tl` 载体档位，非模态无 top layer 提升、档位即生命线）；修正 §6.6 / §7.3 / §8 红线 1 / §10.8 / AI-GUIDE 中「dialog 提升层级 / top layer 决定层级 / html transform」等错误论断为实测真相；测试新增宿主 z-30 遮挡 + elementFromPoint 命中回归断言（共 229 条）；README 新增 §10.8；CHANGELOG / package.json / tokens.json 升 2.3.0。
   - **v2.2.0**：描边精致化（6 处分圆角玻璃去外框 1px、7 处直线分隔改玻璃分隔色、ghost/空态/指示器去圆角描边、焦点环 1.5px → 2px 单圈）；新增可选 JS API（`nvui-api.js`，`createPanel` / `showToast` 等）、`tokens.json`（109/47）、`AI-GUIDE.md`；README 新增第 13 章「JS API 与 AI 协作指南」（原许可顺延第 14 章）、§10.7 修订说明；无破坏性变更。
   - **v2.1.1**：补丁迭代——描边 token 再降一档（line / line-2 / dash / block-line / block-line-2 / glass-line / glass-highlight）、`--nvui-focus-ring-w` 2px → 1.5px 且单圈不叠边、`.nvui-panel` 固定高度（折叠展开不跳变）、`.nvui-panel-body` / `.nvui-modal-body` 隐藏滚动条（保留滚动）；README §10.6 记录修订，第 12 章补固定尺寸与滚动条说明；无破坏性变更。
   - **v2.1.0**：新增面板布局标准组件族（`.nvui-panel` 及 header/title/actions/body/footer/heading、`.nvui-sheet-handle`、`.nvui-bottom-nav` + item）与 2 个尺寸令牌；桌面/手机同一 DOM 响应式切换；tab ↔ 底部导航同步 JS 约定；新增第 12 章规范、§10.5 接入说明；无破坏性变更。
@@ -1411,9 +1437,9 @@ v2.2.0 是**小版本**：调整描边 token 与描边实现方式，并新增�
   - **v1.0.0**：首个版本。token 体系、组件样式、预览页、规范文档、`test/test-ui-kit.js`。
 - 兼容性约定：
   - 修 bug / 调整单个 token 值 / 动效打磨 / 反馈修复：补丁版本（2.1.x）；
-  - 新增组件 / 新增 token / 新增可选文件（不破坏既有 DOM 与取值）：小版本（2.x.0）；当前 **2.2.0** 即小版本迭代（描边精致化 + 新增 API / JSON / AI 指南），无破坏性变更，覆盖 CSS 即可升级，JS API 按需引入；
+  - 新增组件 / 新增 token / 新增可选文件（不破坏既有 DOM 与取值）：小版本（2.x.0）；当前 **2.3.0** 即小版本迭代（载体层级修复 + 新增 `--nvui-z-layer`），无破坏性变更，覆盖 CSS 即可升级；
   - 重命名类/token、删除 token、修改 DOM 契约：大版本（x.0.0），并同步更新本文件的迁移对照表与 `test/test-ui-kit.js` 的金标准/必填清单。
-- 升级步骤：用新版本目录覆盖 `tokens.css` / `components.css` → 打开 `preview.html` 确认视觉无回归 → 在本目录运行 `npm test` →（若集成在插件中）再跑该插件的测试。v2.0.1 的升级细节见 [10.4](#104-v200--v201-修订说明)，v2.1.0 面板布局接入见 [10.5](#105-v201--v210-新增面板布局标准) 与 [第 12 章](#12-sillytavern-插件面板布局标准桌面--手机)，v2.1.1 描边 / 尺寸 / 滚动条调整见 [10.6](#106-v210--v211-描边再减弱--单圈焦点环--固定面板尺寸--隐藏滚动条)，v2.2.0 描边精致化与 API 接入见 [10.7](#107-v211--v220-描边精致化--新增-js-api--tokensjson--ai-指南) 与 [第 13 章](#13-js-api-与-ai-协作指南)。
+- 升级步骤：用新版本目录覆盖 `tokens.css` / `components.css` → 打开 `preview.html` 确认视觉无回归 → 在本目录运行 `npm test` →（若集成在插件中）再跑该插件的测试。v2.0.1 的升级细节见 [10.4](#104-v200--v201-修订说明)，v2.1.0 面板布局接入见 [10.5](#105-v201--v210-新增面板布局标准) 与 [第 12 章](#12-sillytavern-插件面板布局标准桌面--手机)，v2.1.1 描边 / 尺寸 / 滚动条调整见 [10.6](#106-v210--v211-描边再减弱--单圈焦点环--固定面板尺寸--隐藏滚动条)，v2.2.0 描边精致化与 API 接入见 [10.7](#107-v211--v220-描边精致化--新增-js-api--tokensjson--ai-指南) 与 [第 13 章](#13-js-api-与-ai-协作指南)，v2.3.0 浮层载体层级修复见 [10.8](#108-v220--v230-浮层载体层级修复新增---nvui-z-layer)。
 
 > 备注：`ui-kit/` 作为独立项目时，版本号只看本目录内的 `package.json` / `CHANGELOG.md`；它不代表任何宿主插件的版本。
 
@@ -1675,7 +1701,7 @@ function setupPanelNav(panel) {
 - 桌面与手机是同一份状态：在桌面切到「导出」后把窗口缩到手机宽度，底部导航应仍是「导出」高亮（因为状态只有一份）。
 - 指示器同步可直接复用 [7.7 标签页](#77-标签页激活弹跳--粘连指示器) 的 `setupTabsIndicator`；面板内 tabs 同时要处理横向滚动。
 - 面板打开/关闭后把焦点移入面板、关闭后归还触发元素（见 §2.3）；`aria-modal="true"` 必须配合焦点陷阱。
-- 若面板内容里用到 `.nvui-toast-stack`，仍必须放进 `dialog.nvui-tl` 顶层载体（宿主 transform 红线，见第 8 节）。
+- 若面板内容里用到 `.nvui-toast-stack`，仍必须放进 `dialog.nvui-tl` 顶层载体（宿主层级红线，见第 8 节）。
 
 ### 12.8 内容排列规范
 
@@ -1718,7 +1744,7 @@ function setupPanelNav(panel) {
 - **手机不要把 `.nvui-bottom-nav` 改成 `position:fixed` 覆盖 `body`**：它是面板 flex 列的最后一项，`env(safe-area-inset-bottom)` 已在组件内处理。
 - **不要把底部导航做成 `<a href="#">`**：用 `<button>` + `aria-current`，避免页面跳动与语义错误。
 - **不要复刻参考图的青色/他插件皮肤**：视觉只使用 Kit 的紫色 Flat Glass token，换色只改 `tokens.css`。
-- **不要在面板里用裸 `position:fixed` 子元素**（弹窗/吐司/工具提示同理）：酒馆 `html` 有 `transform`，必须走 `dialog.nvui-tl` 顶层载体（第 8 节红线）。
+- **不要在面板里用裸 `position:fixed` 子元素**（弹窗/吐司/工具提示同理）：必须走 `dialog.nvui-tl` 顶层载体——非模态 dialog 无 top layer 提升，载体自带 `--nvui-z-layer` 档位压过宿主竞争（第 8 节红线）。
 - **不要把滚动容器设成面板本身**：`.nvui-panel` 一旦滚动，底部导航会跟着内容滚走。
 
 ---
@@ -1730,7 +1756,7 @@ v2.2.0 新增三个可选的协作资产，让「用 Kit 规范做界面」从"�
 | 文件 | 作用 | 是否必须 |
 | :--- | :--- | :--- |
 | [`nvui-api.js`](nvui-api.js) | 零依赖运行时 API：用函数生成符合第 12 章布局标准与 §7 无障碍契约的面板 / 行组件 / 吐司 | 可选（需要 JS 生成 DOM 时） |
-| [`tokens.json`](tokens.json) | `tokens.css` 的机器可读镜像（dark 109 / light 47），供构建工具、其它软件、AI 读取 | 可选 |
+| [`tokens.json`](tokens.json) | `tokens.css` 的机器可读镜像（dark 110 / light 47），供构建工具、其它软件、AI 读取 | 可选 |
 | [`AI-GUIDE.md`](AI-GUIDE.md) | 给 AI 编码助手的操作手册：硬约束、读文件顺序、标准流程、提示词模板、验收清单 | 可选（AI 协作时强烈建议） |
 
 不引入这三个文件不影响纯 CSS 用法；它们不改变任何既有类名、DOM 契约与 token 取值。
@@ -1835,10 +1861,10 @@ panel.open();
 ```json
 {
   "name": "sillytavern-nvui-kit-tokens",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "SillyTavern UI Kit 设计令牌机器可读镜像（由 tokens.css 生成，勿手改）。dark = 深色默认，light = .nvui-theme-light 覆盖。",
   "generatedFrom": "tokens.css",
-  "dark": { "--nvui-bg": "#161a24", "--nvui-accent": "#8b6dff", "...": "共 109 个令牌" },
+  "dark": { "--nvui-bg": "#161a24", "--nvui-accent": "#8b6dff", "...": "共 110 个令牌" },
   "light": { "--nvui-bg": "#f7f8fc", "--nvui-accent": "#6d4df2", "...": "共 47 个覆盖" }
 }
 ```
@@ -1847,7 +1873,7 @@ panel.open();
 | :--- | :--- |
 | `name` / `version` | 包名与 kit 版本（与 `package.json` 一致） |
 | `generatedFrom` | 固定为 `tokens.css`（唯一事实来源） |
-| `dark` | 深色默认令牌全集（109 个），键为 `--nvui-*`，值为 CSS 文本 |
+| `dark` | 深色默认令牌全集（110 个），键为 `--nvui-*`，值为 CSS 文本 |
 | `light` | `.nvui-theme-light` 覆盖（47 个）；未覆盖的 token 继承 `dark` |
 
 **用途**：构建工具生成工具类 / 主题；其它软件导入设计变量；AI 不必解析 CSS 就能知道有哪些 token；设计工具做令牌映射。
@@ -1911,7 +1937,7 @@ const tokens = await res.json();
 
 **需要按宿主替换**
 
-- SillyTavern 专属的 `<dialog class="nvui-tl">` top-layer 载体与「宿主 `html` 有 transform」规避：其它框架可映射到自己的 modal / portal 根节点，但必须保持等价的层级语义、`role="dialog"`、焦点移入/归还，且不要让浮层被宿主 transform 裁剪；
+- SillyTavern 专属的 `<dialog class="nvui-tl">` 载体：非模态 `show()` + 载体自身 z-index 档位（`--nvui-z-layer`）双机制——前者避开 `inert`，后者压过宿主层级竞争（酒馆 `#sheld` z-index:30 会盖住无档位容器）；其它框架可映射到自己的 modal / portal 根节点，但必须保持等价的层级语义、`role="dialog"`、焦点移入/归还；
 - 图标字库：Font Awesome 可换成你项目使用的图标方案（保持 `<i>` / SVG 的可访问写法）；
 - 宿主主题变量：不要混用目标软件的全局 CSS 变量，Kit 浮层继续用 `--nvui-*` 自包含配色；
 - 构建体系：`nvui-api.js` 是 UMD 零依赖文件，可直接 `<script>` 或打包引用；`tokens.json` 可在构建期生成为你框架的变量文件。

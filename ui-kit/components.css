@@ -1,7 +1,7 @@
 /**
  * SillyTavern 插件通用 UI Kit · 组件样式
  * ------------------------------------------------------------------
- * 版本：ui-kit v2.2.0；依赖：tokens.css（必须先引入或先拼进来）
+ * 版本：ui-kit v2.3.0；依赖：tokens.css（必须先引入或先拼进来）
  *
  * 本目录是独立项目（自带 package.json / LICENSE / CHANGELOG / test/），
  * 可整目录复制/移动到任意文件夹或仓库，不依赖任何外部文件。
@@ -61,12 +61,26 @@
 }
 
 /* ==========================================================================
- * 2. top-layer 载体（SillyTavern 兼容关键）
+ * 2. 浮层载体（SillyTavern 兼容关键）
  * --------------------------------------------------------------------------
- * 酒馆 html 上存在 transform，使 position:fixed 的包含块变成文档盒子，手机端
- * 会把浮层推出可视区。解法：把浮层放进 <dialog class="nvui-tl"> 并调用
- * dialog.show()（非模态，避免给文档加 inert），由 dialog 提升渲染层级；
- * 载体本身不吃指针事件，只把指针放行给子浮层（含吐司堆栈）。
+ * 为什么用 <dialog class="nvui-tl"> 当载体：
+ *   1. 非模态 dialog.show() 不会给文档加 inert，宿主 UI 全程可交互
+ *      （showModal() 才进 top layer，但 inert 全文档会让酒馆侧边栏/输入框
+ *      集体失灵，故 kit 禁用模态）；
+ *   2. UA 对 dialog[open] 的默认样式是 display:block 且内外边距归零，
+ *      比裸 div 省心。
+ *
+ * 实测真相（2026-10，Edge 152 中性页 + 酒馆对照实验证实，勿凭直觉改）：
+ *   非模态 show() 根本不进浏览器 top layer —— top layer 只服务于
+ *   showModal() 的模态对话框。所谓「由 dialog 提升渲染层级」是想当然的
+ *   错误论断：本载体与普通 fixed div 在层级上完全平等，会被宿主任何正
+ *   z-index 表面整块盖住（酒馆 #sheld = position:absolute; z-index:30，
+ *   聊天为空时碰巧不重叠，一有消息就盖死 kit 面板——沙盒测试因无宿主
+ *   层级竞争而集体失明，实机冒烟才暴露）。
+ *
+ * 因此：层级 = 载体自身 z-index 压过宿主竞争上限（约 29999），子浮层
+ * 再各自带 floating / overlay / tooltip 档。载体本身不吃指针事件，只把
+ * 指针放行给子浮层（含吐司堆栈）。
  *
  * DOM：
  *   <dialog class="nvui-tl"><div class="nvui-overlay"> ... </div></dialog>
@@ -86,6 +100,7 @@ dialog.nvui-tl {
     overflow: visible;
     background: transparent;
     color: inherit;
+    z-index: var(--nvui-z-layer); /* 非模态 dialog 无 top layer 提升，档位即生命线 */
     pointer-events: none; /* 载体透明放行；子浮层各自恢复 auto */
 }
 

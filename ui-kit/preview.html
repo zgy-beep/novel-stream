@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SillyTavern UI Kit v2.2.0 · Flat Glass 组件预览</title>
+<title>SillyTavern UI Kit v2.3.0 · Flat Glass 组件预览</title>
 <!--
-  SillyTavern 插件通用 UI Kit v2.2.0「Flat Glass」组件预览页
+  SillyTavern 插件通用 UI Kit v2.3.0「Flat Glass」组件预览页
   ------------------------------------------------------------------
   v2.0.1 修订（2026-10-17，用户反馈迭代）：玻璃更通透（弹窗级 0.64 / popover 级 0.80，
   受光边 0.06 / 内高光 0.04，blur 20px / 12px，saturate 150%）；新增 nvui-tabpane-in 与
@@ -38,6 +38,13 @@
   tokens.json（tokens.css 的机器可读镜像，109 深色 + 47 浅色覆盖）、AI-GUIDE.md（给 AI 的硬约束、
   文件阅读顺序、ST 插件面板标准流程、其它软件迁移规范、提示词模板、API 速查与验收清单）。
   第 19 节演示用 ./nvui-api.js 真实创建面板/吐司，支持 ?api=1 载入即开。
+  ------------------------------------------------------------------
+  v2.3.0 修复（2026-10-20，下游插件实机冒烟测试定位）：非模态 dialog.show() 实测不进
+  浏览器 top layer（只有 showModal() 进，但其 inert 会废掉宿主交互），载体此无 z-index，
+  会被宿主正 z-index 表面（酒馆 #sheld = position:absolute; z-index:30，聊天非空时）整块
+  盖住——本页无宿主层级竞争所以看不出来。修复：新增令牌 --nvui-z-layer: 1000000（载体档），
+  dialog.nvui-tl 增加 z-index: var(--nvui-z-layer)；子浮层仍在载体内按 floating/overlay/
+  tooltip 排位。测试新增「宿主 z-30 遮挡物 + elementFromPoint 命中」回归断言。
   ------------------------------------------------------------------
   单文件离线：只依赖同目录的 ./tokens.css 与 ./components.css，以及可选的 ./nvui-api.js；
   无外链脚本 / 外链样式 / 字体 / CDN / 图片，无 emoji，可整目录复制后直接双击打开。
@@ -1096,7 +1103,7 @@
         <div class="pv-hero-main">
             <h1>
                 <span>SillyTavern UI Kit</span>
-                <span class="nvui-badge is-accent">v2.2.0</span>
+                <span class="nvui-badge is-accent">v2.3.0</span>
                 <span class="nvui-badge">Flat Glass</span>
             </h1>
             <p class="nvui-hint pv-hero-sub">
@@ -1105,7 +1112,7 @@
                 单文件离线可开，不需要酒馆、不需要网络、无第三方库。
             </p>
             <div class="pv-hero-meta">
-                <span class="nvui-badge">109 个设计令牌</span>
+                <span class="nvui-badge">110 个设计令牌</span>
                 <span class="nvui-badge">78 个组件类</span>
                 <span class="nvui-badge">16 个关键帧</span>
                 <span class="nvui-badge is-accent">AA 安全玻璃</span>
@@ -2397,7 +2404,7 @@
                         <div class="pv-file-card">
                             <h4 class="pv-rule-title">tokens.json</h4>
                             <p class="nvui-hint">
-                                tokens.css 的机器可读镜像：109 个深色令牌 + 47 个浅色覆盖，
+                                tokens.css 的机器可读镜像：110 个深色令牌 + 47 个浅色覆盖，
                                 供 AI、构建脚本与其它软件读取精确取值，避免手工抄错色值。
                             </p>
                             <a class="pv-file-link" href="./tokens.json">./tokens.json</a>
@@ -2454,13 +2461,13 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         </section>
 
         <!-- ========================================================
-             附录：设计令牌速查（109 个）
+             附录：设计令牌速查（110 个）
              ======================================================== -->
         <section class="pv-section" aria-labelledby="pv-sec-appendix-title">
             <div class="pv-section-head">
                 <span class="pv-sec-num">附</span>
                 <div class="pv-section-heading">
-                    <h2 class="nvui-section-title" id="pv-sec-appendix-title">附录：设计令牌速查（109 个）</h2>
+                    <h2 class="nvui-section-title" id="pv-sec-appendix-title">附录：设计令牌速查（110 个）</h2>
                     <p class="nvui-hint">
                         tokens.css 定义的全部 --nvui-* 令牌，按用途分组。完整取值与说明见 README.md 的配色、圆角、
                         阴影与动效表格；测试会守护「定义即登记、核心令牌必须被组件或预览页使用」。
@@ -2649,6 +2656,7 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
                         <div class="pv-token-group">
                             <h3 class="pv-token-group-title">层级</h3>
                             <div class="pv-token-list">
+                                <code class="pv-token-chip">--nvui-z-layer</code>
                                 <code class="pv-token-chip">--nvui-z-floating</code>
                                 <code class="pv-token-chip">--nvui-z-overlay</code>
                                 <code class="pv-token-chip">--nvui-z-tooltip</code>
@@ -2663,7 +2671,7 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
 
     <footer class="pv-footer">
         <div>SillyTavern UI Kit v2.2.0 · Flat Glass · 单文件离线预览（无外链 / 无 CDN / 无 emoji）</div>
-        <div>文件：tokens.css + components.css · 规范：README.md · 令牌：109 个 · 组件类：78 个 · 关键帧：16 个</div>
+        <div>文件：tokens.css + components.css · 规范：README.md · 令牌：110 个 · 组件类：78 个 · 关键帧：16 个</div>
     </footer>
 </div>
 
