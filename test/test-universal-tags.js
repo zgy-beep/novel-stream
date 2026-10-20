@@ -1,156 +1,35 @@
-const fs = require('fs');
-
-// 通用行内排版标签（这些标签不作为思考/元数据孤立块处理）
-const INLINE_TAGS = new Set(['b', 'i', 'u', 's', 'em', 'strong', 'span', 'sub', 'sup', 'small', 'del', 'mark']);
-
 /**
- * 通用小说文本清洗与标签剥离引擎
+ * 通用全标签清洗引擎回归测试（v2.0.0 起改为「抽真源码」模式）
+ * 运行方式: node test/test-universal-tags.js
+ *
+ * v1.x 本文件维护着 cleanNovelTextUniversal 手抄副本；v2.0.0 重写为抽取模式：
+ * 直接抽取 index.js 中 INLINE_TAGS / DEFAULT_SETTINGS / parseTagList / cleanNovelText
+ * 的真实定义执行，锁死线上引擎行为（任意自定义无头标签、思维链变体、三态黑名单）。
  */
-function cleanNovelTextUniversal(rawText, settings = {}) {
-    if (!rawText || typeof rawText !== 'string') return '';
-    let text = rawText;
 
-    // =========================================================================
-    // 阶段零【通用前置/思考/Prefill 孤立闭标签与通用思维链自动剔除】
-    // 无论是 think, cot, scratchpad, analysis, plan, 还是类似 think_fox~, my_tag~ 等任意自定义标签
-    // =========================================================================
+const fs = require('fs');
+const path = require('path');
 
-    // 前置清洗：彻底过滤 HTML 注释与 Markdown 图片/多媒体
-    text = text.replace(/<!--[\s\S]*?-->/g, '');
-    text = text.replace(/!\[.*?\]\(.*?\)/g, '');
-    text = text.replace(/<img[^>]*>/gi, '');
+const INDEX_PATH = path.join(__dirname, '..', 'index.js');
+const src = fs.readFileSync(INDEX_PATH, 'utf8');
 
-    // 1. 通用开篇孤立闭标签检测：
-    // 当消息以思考、分析、Prompt 元数据开篇，但开标签被反代或预设 prefill 省略，仅以 </tag_name> 闭合时
-    // 自动切除从第 0 个字符到该闭合标签的全部内容
-    let prevText = '';
-    while (prevText !== text) {
-        prevText = text;
-        // 匹配任意非行内标签的开篇孤立闭合标签：^ (前置内容) </tagName>
-        // 支持特殊符号如 ~、_、-、:、. 等（例如 </think_fox~>, </system:cot>）
-        const match = text.match(/^([\s\S]*?)<\/\s*([a-zA-Z0-9_\-~.:#]+)\s*>\s*/i);
-        if (match) {
-            const beforeClosing = match[1];
-            const tagName = match[2].toLowerCase();
-            // 如果不是普通行内样式标签
-            if (!INLINE_TAGS.has(tagName)) {
-                // 检查这部分前置内容里是否包含同名开标签 <tagName...
-                const safeTag = match[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const openTagRegex = new RegExp(`<${safeTag}[^>]*>`, 'i');
-                if (!openTagRegex.test(beforeClosing)) {
-                    // 没有开标签，证实这是被省略了开标签的无头前置块（无论 tag 名叫什么），彻底切除！
-                    text = text.slice(match[0].length);
-                    continue;
-                }
-            }
-        }
-        break;
+function extract(name, re) {
+    const m = src.match(re);
+    if (!m) {
+        console.error(`[FAIL] index.js 中未找到 ${name} 定义（v2.0.0 重构是否漏搬引擎？）`);
+        process.exit(1);
     }
-
-    // 2. 泛化思维链/思考/草稿/规划标签成对剔除（覆盖常见所有辅助型标签）
-    // 匹配 think, thought, reasoning, cot, scratchpad, reflection, inner_thought, analysis, plan 等
-    const genericAuxiliaryPattern = /<\s*([a-zA-Z0-9_\-~.:#]*(?:think|thought|reasoning|cot|scratchpad|reflection|inner_thought|analysis|plan)[a-zA-Z0-9_\-~.:#]*)[^>]*>[\s\S]*?<\/\s*\1\s*>\s*/gi;
-    text = text.replace(genericAuxiliaryPattern, '');
-
-    // 剔除末尾未闭合的思考链（针对 max_tokens 截断未输出闭合标签的情况）
-    const unclosedAuxPattern = /<\s*([a-zA-Z0-9_\-~.:#]*(?:think|thought|reasoning|cot|scratchpad|reflection|inner_thought|analysis|plan)[a-zA-Z0-9_\-~.:#]*)[^>]*>[\s\S]*$/i;
-    text = text.replace(unclosedAuxPattern, '');
-
-    // =========================================================================
-    // 阶段一【白名单模式】：优先提取指定标签内的正文
-    // =========================================================================
-    const includeInput = (typeof settings.include_tags === 'string') ? settings.include_tags.trim() : '';
-    if (includeInput) {
-        const includeTags = includeInput
-            .split(/[,，\s]+/)
-            .map(t => t.trim().replace(/^<|>$/g, ''))
-            .filter(Boolean);
-
-        if (includeTags.length > 0) {
-            const extractedParts = [];
-            for (const tag of includeTags) {
-                const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const tagRegex = new RegExp(`<\\s*(${safeTag})[^>]*>([\\s\\S]*?)<\\/\\s*\\1\\s*>`, 'gi');
-                let match;
-                while ((match = tagRegex.exec(text)) !== null) {
-                    if (match[2] && match[2].trim()) {
-                        extractedParts.push(match[2].trim());
-                    }
-                }
-            }
-            if (extractedParts.length > 0) {
-                text = extractedParts.join('\n\n');
-            }
-        }
-    }
-
-    // =========================================================================
-    // 阶段二【黑名单模式】：深度剔除不要的标签块（成对标签 + 未闭合尾部标签）
-    // =========================================================================
-    const excludeInput = (typeof settings.exclude_tags === 'string') 
-        ? settings.exclude_tags 
-        : 'status,memory,details,variables,analysis,ooc,note,draft,system,state,log';
-
-    if (excludeInput && excludeInput.trim()) {
-        const excludeTags = excludeInput
-            .split(/[,，\s]+/)
-            .map(t => t.trim().replace(/^<|>$/g, ''))
-            .filter(Boolean);
-
-        for (const tag of excludeTags) {
-            const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // 1. 成对闭合标签块完整排除（支持标签内空格，如 <status >...</status >）
-            const pairReg = new RegExp(`<\\s*(${safeTag})[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi');
-            text = text.replace(pairReg, '');
-
-            // 2. 开篇缺失开标签、仅有闭合标签的孤立块排除
-            if (!new RegExp(`<\\s*${safeTag}[^>]*>`, 'i').test(text)) {
-                const orphanCloseReg = new RegExp(`^[\\s\\S]*?<\\/\\s*${safeTag}\\s*>\\s*`, 'i');
-                text = text.replace(orphanCloseReg, '');
-            }
-
-            // 3. 末尾只有开标签、但因达到 token 限制未闭合的残留块排除
-            // 例如正文末尾附带了 <status> 血量: 100 但没有输出 </status>
-            if (!new RegExp(`<\\/\\s*${safeTag}\\s*>`, 'i').test(text)) {
-                const unclosedTailReg = new RegExp(`<\\s*${safeTag}[^>]*>[\\s\\S]*$`, 'i');
-                text = text.replace(unclosedTailReg, '');
-            }
-        }
-    }
-
-    // =========================================================================
-    // 阶段三【网页与排版杂质清洗】
-    // =========================================================================
-    text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    text = text.replace(/<br\s*[\/]?>/gi, '\n');
-    text = text.replace(/<\/p>/gi, '\n\n');
-    // 剥离剩余的所有 HTML/XML 格式化标签（如 <div class="...">, </span> 等）
-    text = text.replace(/<\/?[a-zA-Z0-9_\-~.:#]+[^>]*>/g, '');
-
-    text = text
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-
-    // =========================================================================
-    // 阶段四【中文出版小说段落规范化】
-    // =========================================================================
-    const paragraphs = text
-        .split(/\r?\n+/)
-        .map(p => p.trim())
-        .filter(p => p.length > 0);
-
-    const shouldIndent = settings.indent_paragraphs !== false;
-    if (shouldIndent) {
-        return paragraphs.map(p => `　　${p}`).join('\n\n');
-    }
-
-    return paragraphs.join('\n\n');
+    return m[0];
 }
+
+const ENGINE = [
+    extract('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
+    extract('DEFAULT_SETTINGS', /const DEFAULT_SETTINGS = \{[\s\S]*?\n\};/),
+    extract('parseTagList', /function parseTagList\(str\) \{[\s\S]*?\n\}/),
+    extract('cleanNovelText', /function cleanNovelText\(rawText, settings = \{\}\) \{[\s\S]*?\n\}/)
+].join('\n\n');
+
+const { cleanNovelText } = new Function(ENGINE + '\nreturn { cleanNovelText };')();
 
 // 自动化测试集
 const cases = [
@@ -205,12 +84,24 @@ const cases = [
         name: '测试10: max_tokens 截断导致末尾未闭合的思考链（如 <think>正在分析...）',
         input: '艾莉丝叹了一口气。<think>正在构思下一步行动，但是突然被截断了',
         expected: '　　艾莉丝叹了一口气。'
+    },
+    {
+        name: '测试11: 白名单命中多个标签块时按序拼接（parseTagList 真实参与）',
+        input: '<story>第一段故事。</story><ooc>旁注</ooc><story>第二段故事。</story>',
+        settings: { include_tags: 'story', exclude_tags: '' },
+        expected: '　　第一段故事。\n\n　　第二段故事。'
+    },
+    {
+        name: '测试12: 白名单未命中任何块时保留全文，不得静默清空（AC-05）',
+        input: '没有任何指定标签的普通正文。',
+        settings: { include_tags: 'story' },
+        expected: '　　没有任何指定标签的普通正文。'
     }
 ];
 
 let allPassed = true;
 for (const tc of cases) {
-    const result = cleanNovelTextUniversal(tc.input, tc.settings || {});
+    const result = cleanNovelText(tc.input, tc.settings || {});
     if (result === tc.expected) {
         console.log(`[PASS] ${tc.name}`);
     } else {
@@ -224,5 +115,5 @@ for (const tc of cases) {
 if (!allPassed) {
     process.exit(1);
 } else {
-    console.log('\n=== 通用全标签清洗引擎自动化测试全部通过！ ===');
+    console.log('\n=== 通用全标签清洗引擎自动化测试全部通过！（引擎实现抽自 index.js 真实源码） ===');
 }

@@ -1,67 +1,49 @@
 /**
- * 楼层"已入书"章节映射（computeChapterMap）单元测试
+ * 章节派生与楼层「已入书」映射测试（v2.0.0 无状态架构 · 抽真源码模式）
  * 运行方式: node test/test-chapter-map.js
  *
- * 注意：与 test-tag-scanner.js 同模式，以下为从 index.js 复制的纯函数副本，前端模块为 ES module 无法直接 require。
- * cleanNovelText 在此为简化桩（仅驱动占号逻辑的"过滤后为空"分支）——真实清洗引擎由 test-think.js / test-universal-tags.js 锁定测试。
+ * v1.x 本文件使用 cleanNovelText 简化桩副本；v2.0.0 重写为抽取模式：
+ * 从 index.js 抽取 computeChapters / computeChapterMap / getCleanedMessage /
+ * cleanNovelText / parseTagList / INLINE_TAGS / DEFAULT_SETTINGS / cleanTextCache
+ * 的真实定义执行。Spec §5.2 契约全覆盖：
+ *   - 延迟入书：无任何 is_user 消息 → 0 章（问候语不占章）；
+ *   - 连续编号：有用户消息后从 index 0 起连续编号，问候语即第 1 章；
+ *   - 空清洗跳号：清洗后为空的楼层跳过且不消耗章节号；
+ *   - include_user_dialogue：用户楼层可入书可跳过；
+ *   - 清洗缓存：设置签名变化 / 消息对象被替换 / mes 被原地改写均自动重洗。
  */
 
-// 清洗结果缓存：同一会话内避免每条消息被 cleanNovelText 重复全量正则清洗（O(n²) 性能优化）
-const cleanTextCache = { sig: '', map: new Map() };
+const fs = require('fs');
+const path = require('path');
 
-function getCleanMessageSig(settings) {
-    return `${settings.include_tags || ''}|${settings.exclude_tags || ''}|${settings.indent_paragraphs !== false}`;
-}
+const INDEX_PATH = path.join(__dirname, '..', 'index.js');
+const src = fs.readFileSync(INDEX_PATH, 'utf8');
 
-/**
- * 简化清洗桩：仅保留"注释剔除 + 黑名单成对块剔除 + 标签剥壳 + 段落化"行为，
- * 足够驱动 computeChapterMap 的"被过滤为空的楼层跳过不占号"逻辑
- */
-function cleanNovelText(rawText, settings = {}) {
-    if (!rawText || typeof rawText !== 'string') return '';
-    let text = rawText.replace(/<!--[\s\S]*?-->/g, '');
-    const excludeTags = ['status', 'memory', 'details', 'ooc', 'note'];
-    for (const tag of excludeTags) {
-        const pairReg = new RegExp(`<\\s*(${tag})[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi');
-        text = text.replace(pairReg, '');
+function extract(name, re) {
+    const m = src.match(re);
+    if (!m) {
+        console.error(`[FAIL] index.js 中未找到 ${name} 定义（v2.0.0 重构是否漏搬？）`);
+        process.exit(1);
     }
-    text = text.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '');
-    const paragraphs = text.split(/\r?\n+/).map(p => p.trim()).filter(p => p.length > 0);
-    return paragraphs.join('\n\n');
+    return m[0];
 }
 
-/**
- * 带缓存的消息清洗（与 index.js 同款签名与缓存语义）
- */
-function getCleanedMessage(msg, index, settings) {
-    if (!msg) return '';
-    const sig = getCleanMessageSig(settings);
-    if (cleanTextCache.sig !== sig) {
-        cleanTextCache.sig = sig;
-        cleanTextCache.map.clear();
-    }
-    const cached = cleanTextCache.map.get(index);
-    if (cached && cached.src === msg && cached.mes === msg.mes) return cached.text;
-    const text = cleanNovelText(msg.mes || '', settings);
-    cleanTextCache.map.set(index, { src: msg, mes: msg.mes, text });
-    return text;
-}
+const ENGINE = [
+    extract('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
+    extract('DEFAULT_SETTINGS', /const DEFAULT_SETTINGS = \{[\s\S]*?\n\};/),
+    extract('parseTagList', /function parseTagList\(str\) \{[\s\S]*?\n\}/),
+    extract('cleanNovelText', /function cleanNovelText\(rawText, settings = \{\}\) \{[\s\S]*?\n\}/),
+    extract('cleanTextCache', /const cleanTextCache = \{ sig: '', map: new Map\(\) \};/),
+    extract('getCleanMessageSig', /function getCleanMessageSig\(settings\) \{[\s\S]*?\n\}/),
+    extract('getCleanedMessage', /function getCleanedMessage\(msg, index, settings\) \{[\s\S]*?\n\}/),
+    extract('chatHasUserMessage', /function chatHasUserMessage\(chatLog\) \{[\s\S]*?\n\}/),
+    extract('computeChapters', /function computeChapters\(settings, chatLog\) \{[\s\S]*?\n\}/),
+    extract('computeChapterMap', /function computeChapterMap\(settings, chatLog\) \{[\s\S]*?\n\}/)
+].join('\n\n');
 
-/**
- * 楼层序号 → 已入书章节号（徽标展示用；切换聊天时重算）——与 index.js 逐字一致
- */
-function computeChapterMap(settings, chatLog) {
-    const map = {};
-    if (!Array.isArray(chatLog)) return map;
-    let chapter = 0;
-    for (let i = 0; i < chatLog.length; i++) {
-        const m = chatLog[i];
-        if (!m) continue;
-        if (m.is_user && !settings.include_user_dialogue) continue;
-        if (getCleanedMessage(m, i, settings)) { chapter++; map[i] = chapter; }
-    }
-    return map;
-}
+const { computeChapters, computeChapterMap } = new Function(
+    ENGINE + '\nreturn { computeChapters, computeChapterMap };'
+)();
 
 let passCount = 0;
 let failCount = 0;
@@ -91,60 +73,104 @@ function assertDeepEqual(actual, expected, testName) {
 
 const baseSettings = { include_user_dialogue: false, indent_paragraphs: true };
 
-// 测试 1: 普通混合聊天编号（关闭用户对白：用户楼层不入书不占号）
+/* ---------- 1. 延迟入书（Spec §5.2 / AC-02） ---------- */
+assertDeepEqual(computeChapters(baseSettings, [{ is_user: false, mes: '角色问候语，你好呀。' }]), [],
+    '测试 1.1: 无任何用户消息 → 0 章（问候语不占章）');
+assertDeepEqual(computeChapterMap(baseSettings, [{ is_user: false, mes: '角色问候语，你好呀。' }]), {},
+    '测试 1.2: 延迟入书时楼层映射为空');
+assertDeepEqual(computeChapters(baseSettings, []), [], '测试 1.3: 空聊天 → 0 章');
+
+/* ---------- 2. 连续编号（有用户消息后从 0 起，问候语即第 1 章） ---------- */
 {
     const chatLog = [
-        { is_user: true, mes: '用户的提问' },
-        { is_user: false, mes: '第一段剧情正文' },
-        { is_user: true, mes: '用户的第二次提问' },
-        { is_user: false, mes: '第二段剧情正文' },
-        { is_user: false, mes: '第三段剧情正文' }
+        { is_user: false, name: '艾莉丝', mes: '你好呀，旅行者。' },
+        { is_user: true, name: '你', mes: '我们出发吧。' },
+        { is_user: false, name: '艾莉丝', mes: '清晨的微风穿过树林。' }
     ];
-    assertDeepEqual(computeChapterMap(baseSettings, chatLog), { 1: 1, 3: 2, 4: 3 }, '测试 1.1: 用户楼层跳过，AI 楼层连续编号 1/2/3');
+    const chapters = computeChapters(baseSettings, chatLog);
+    assert(chapters.length === 2, '测试 2.1: 用户楼层跳过，共 2 章');
+    assert(chapters[0].no === 1 && chapters[0].index === 0 && chapters[0].speaker === '艾莉丝',
+        '测试 2.2: 问候语为第 1 章（index 0 / no 1 / speaker=艾莉丝）');
+    assert(chapters[1].no === 2 && chapters[1].index === 2, '测试 2.3: 后续 AI 楼层连续编号第 2 章');
+    assert(chapters[0].text === '　　你好呀，旅行者。', '测试 2.4: 章节正文 = 清洗后文本（默认缩进）');
+    assertDeepEqual(computeChapterMap(baseSettings, chatLog), { 0: 1, 2: 2 },
+        '测试 2.5: 楼层映射 {0:1, 2:2}');
 }
 
-// 测试 2: include_user_dialogue 开启后用户楼层入书并参与占号
+/* ---------- 3. 主角对白开关（AC-04） ---------- */
 {
-    const settings = { ...baseSettings, include_user_dialogue: true };
     const chatLog = [
-        { is_user: true, mes: '用户的提问' },
-        { is_user: false, mes: '第一段剧情正文' },
-        { is_user: true, mes: '用户的第二次提问' },
-        { is_user: false, mes: '第二段剧情正文' }
+        { is_user: true, name: '你', mes: '我们出发吧。' },
+        { is_user: false, name: '艾莉丝', mes: '好，那就上路。' }
     ];
-    assertDeepEqual(computeChapterMap(settings, chatLog), { 0: 1, 1: 2, 2: 3, 3: 4 }, '测试 2.1: 开启主角对白后用户楼层入书占号');
+    const off = computeChapters(baseSettings, chatLog);
+    assert(off.length === 1 && off[0].index === 1, '测试 3.1: include_user_dialogue=false 时用户楼层不入书');
+    const on = computeChapters({ ...baseSettings, include_user_dialogue: true }, chatLog);
+    assert(on.length === 2 && on[0].index === 0 && on[1].index === 1,
+        '测试 3.2: include_user_dialogue=true 时用户楼层入书并占号');
 }
 
-// 测试 3: 被过滤为空的楼层跳过且不占章节号（编号不被掏空）
+/* ---------- 4. 空清洗跳号（编号不被掏空） ---------- */
 {
     const chatLog = [
+        { is_user: true, name: '你', mes: '开始吧。' },
         { is_user: false, mes: '<story>第一章正文</story>' },
         { is_user: false, mes: '<status>HP: 1/1</status>' },
         { is_user: false, mes: '<memory>仅记忆块，无正文</memory>' },
         { is_user: false, mes: '第三章正文' }
     ];
-    assertDeepEqual(computeChapterMap(baseSettings, chatLog), { 0: 1, 3: 2 }, '测试 3.1: 纯黑名单块的楼层被跳过且不消耗章节号');
+    assertDeepEqual(computeChapterMap(baseSettings, chatLog), { 1: 1, 4: 2 },
+        '测试 4.1: 纯黑名单块的楼层被跳过且不消耗章节号');
 }
 
-// 测试 4: 混合边界（null 楼层、空正文、纯空白）全部安全跳过
+/* ---------- 5. 混合边界（null / 空 / 纯空白 / 纯剔除块） ---------- */
 {
     const chatLog = [
         null,
+        { is_user: true, name: '你', mes: '在吗' },
         { is_user: false, mes: '' },
         { is_user: false, mes: '   \n\n  ' },
         { is_user: false, mes: '有效正文' },
         { is_user: false, mes: '<ooc>仅旁注</ooc>' }
     ];
-    assertDeepEqual(computeChapterMap(baseSettings, chatLog), { 3: 1 }, '测试 4.1: null/空/纯空白/纯剔除块楼层全部跳过，仅有效楼层占第 1 章');
+    assertDeepEqual(computeChapterMap(baseSettings, chatLog), { 4: 1 },
+        '测试 5.1: null/空/纯空白/纯剔除块楼层全部跳过，仅有效楼层占第 1 章');
 }
 
-// 测试 5: 空聊天与非数组输入返回空映射
-assertDeepEqual(computeChapterMap(baseSettings, []), {}, '测试 5.1: 空聊天返回空映射');
-assertDeepEqual(computeChapterMap(baseSettings, null), {}, '测试 5.2: 非数组输入返回空映射（循环零次）');
+/* ---------- 6. speaker 兜底链 ---------- */
+{
+    const chatLog = [
+        { is_user: true, mes: '无名的用户发言' },
+        { is_user: false, mes: '无名的旁白正文' },
+        { is_user: false, name: '艾莉丝', mes: '有名字的发言' }
+    ];
+    const chapters = computeChapters({ ...baseSettings, include_user_dialogue: true }, chatLog);
+    assert(chapters[0].speaker === '你', '测试 6.1: 用户楼层无 name 时兜底「你」');
+    assert(chapters[1].speaker === '旁白', '测试 6.2: AI 楼层无 name 时兜底「旁白」');
+    assert(chapters[2].speaker === '艾莉丝', '测试 6.3: 有 name 时优先用 name');
+}
 
-console.log(`\n=== 楼层入书章节映射测试结果: 通过: ${passCount}, 失败: ${failCount} ===`);
+/* ---------- 7. 非数组输入 ---------- */
+assertDeepEqual(computeChapters(baseSettings, null), [], '测试 7.1: 非数组输入 → 0 章');
+assertDeepEqual(computeChapterMap(baseSettings, null), {}, '测试 7.2: 非数组输入 → 空映射');
+
+/* ---------- 8. 无状态语义：同输入永远同输出（重 roll / 划动天然正确，AC-03） ---------- */
+{
+    const chatLog = [
+        { is_user: true, name: '你', mes: '开始' },
+        { is_user: false, name: '艾莉丝', mes: '第一次生成的结尾。' }
+    ];
+    const first = JSON.stringify(computeChapters(baseSettings, chatLog));
+    chatLog[1].mes = '重新生成后的全新结尾。';
+    const second = JSON.stringify(computeChapters(baseSettings, chatLog));
+    assert(first !== second, '测试 8.1: 改写 mes 后重新派生（缓存不失真）');
+    assert(second.indexOf('重新生成后的全新结尾。') >= 0, '测试 8.2: 新派生结果包含最新内容');
+    assert(second.indexOf('第一次生成的结尾。') < 0, '测试 8.3: 旧内容无残留');
+}
+
+console.log(`\n=== 章节派生测试结果: 通过: ${passCount}, 失败: ${failCount} ===`);
 if (failCount > 0) {
     process.exit(1);
 } else {
-    console.log('所有楼层入书章节映射测试全部通过！');
+    console.log('所有章节派生与楼层映射测试全部通过！（实现抽自 index.js 真实源码）');
 }

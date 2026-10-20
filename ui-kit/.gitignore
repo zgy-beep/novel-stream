@@ -1,0 +1,9 @@
+# 独立项目自身的忽略项（移动到其它仓库后依然有效）
+node_modules/
+# 本机修复文件夹权限时生成的恢复记录（不属于发布内容）
+.acl-recovery/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,132 +1,36 @@
+/**
+ * 思维链 / 无头标签清洗回归测试（v2.0.0 起改为「抽真源码」模式）
+ * 运行方式: node test/test-think.js
+ *
+ * v1.x 本文件维护着一份 cleanNovelText 手抄副本，副本与线上实现有漂移风险；
+ * v2.0.0 重写为与 test-version-compare.js 同款的抽取模式：正则抽取 index.js 中
+ * INLINE_TAGS / DEFAULT_SETTINGS / parseTagList / cleanNovelText 的真实定义并实例化，
+ * 测试锁定线上实现——引擎被改坏，这里立刻红。
+ */
+
 const fs = require('fs');
 const path = require('path');
 
-const INLINE_TAGS = new Set(['b', 'i', 'u', 's', 'em', 'strong', 'span', 'sub', 'sup', 'small', 'del', 'mark']);
+const INDEX_PATH = path.join(__dirname, '..', 'index.js');
+const src = fs.readFileSync(INDEX_PATH, 'utf8');
 
-function cleanNovelText(rawText, settings = {}) {
-    if (!rawText || typeof rawText !== 'string') return '';
-    let text = rawText;
-
-    // 前置清洗：彻底过滤 HTML 注释 (如 <!-- Lorebook: ... -->) 与 Markdown 多媒体图片
-    text = text.replace(/<!--[\s\S]*?-->/g, '');
-    text = text.replace(/!\[.*?\]\(.*?\)/g, '');
-    text = text.replace(/<img[^>]*>/gi, '');
-
-    // 阶段零【通用前置无头标签与思维链智能清洗】：
-    // 应对任何反代、Prefill、插件导致的"开篇无起始标签、仅有闭标签"问题（无论标签名叫什么，均可自动识别并切除）
-    let prevLeadText = '';
-    while (prevLeadText !== text) {
-        prevLeadText = text;
-        const match = text.match(/^([\s\S]*?)<\/\s*([a-zA-Z0-9_\-~.:#]+)\s*>\s*/i);
-        if (match) {
-            const beforeClosing = match[1];
-            const tagName = match[2].toLowerCase();
-            if (!INLINE_TAGS.has(tagName)) {
-                const safeTag = match[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const openTagRegex = new RegExp(`<\\s*${safeTag}[^>]*>`, 'i');
-                if (!openTagRegex.test(beforeClosing)) {
-                    // 开篇内容中不存在对应开标签，证实这是被省略了开标签的前置内容，彻底切除
-                    text = text.slice(match[0].length);
-                    continue;
-                }
-            }
-        }
-        break;
+function extract(name, re) {
+    const m = src.match(re);
+    if (!m) {
+        console.error(`[FAIL] index.js 中未找到 ${name} 定义（v2.0.0 重构是否漏搬引擎？）`);
+        process.exit(1);
     }
-
-    // 泛化剔除成对的思考/思维链/草稿/规划标签（覆盖 think, thought, reasoning, cot, scratchpad, reflection, inner_thought 等各类变体）
-    const genericAuxiliaryPattern = /<\s*([a-zA-Z0-9_\-~.:#]*(?:think|thought|reasoning|cot|scratchpad|reflection|inner_thought|analysis|plan)[a-zA-Z0-9_\-~.:#]*)[^>]*>[\s\S]*?<\/\s*\1\s*>\s*/gi;
-    text = text.replace(genericAuxiliaryPattern, '');
-
-    // 剔除末尾未闭合的思考链（针对 max_tokens 截断未输出闭合标签的情况）
-    const unclosedAuxPattern = /<\s*([a-zA-Z0-9_\-~.:#]*(?:think|thought|reasoning|cot|scratchpad|reflection|inner_thought|analysis|plan)[a-zA-Z0-9_\-~.:#]*)[^>]*>[\s\S]*$/i;
-    text = text.replace(unclosedAuxPattern, '');
-
-    // 阶段一【白名单模式】：优先提取指定标签内的正文
-    const includeInput = (typeof settings.include_tags === 'string') ? settings.include_tags.trim() : '';
-    if (includeInput) {
-        const includeTags = includeInput
-            .split(/[,，\s]+/)
-            .map(t => t.trim().replace(/^<|>$/g, ''))
-            .filter(Boolean);
-
-        if (includeTags.length > 0) {
-            const extractedParts = [];
-            for (const tag of includeTags) {
-                const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const tagRegex = new RegExp(`<\\s*(${safeTag})[^>]*>([\\s\\S]*?)<\\/\\s*\\1\\s*>`, 'gi');
-                let match;
-                while ((match = tagRegex.exec(text)) !== null) {
-                    if (match[2] && match[2].trim()) {
-                        extractedParts.push(match[2].trim());
-                    }
-                }
-            }
-            if (extractedParts.length > 0) {
-                text = extractedParts.join('\n\n');
-            }
-        }
-    }
-
-    // 阶段二【黑名单模式】：深度剔除不要的标签块（支持成对、开篇无开标签、尾部未闭合等各类异常形态）
-    const excludeInput = (typeof settings.exclude_tags === 'string') 
-        ? settings.exclude_tags 
-        : 'status,memory,details,variables,analysis,ooc,note,draft,system,log';
-
-    if (excludeInput && excludeInput.trim()) {
-        const excludeTags = excludeInput
-            .split(/[,，\s]+/)
-            .map(t => t.trim().replace(/^<|>$/g, ''))
-            .filter(Boolean);
-
-        for (const tag of excludeTags) {
-            const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // 1. 成对标签块排除
-            const pairReg = new RegExp(`<\\s*(${safeTag})[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi');
-            text = text.replace(pairReg, '');
-
-            // 2. 开篇缺失开标签、仅有闭标签的孤立块排除
-            if (!new RegExp(`<\\s*${safeTag}[^>]*>`, 'i').test(text)) {
-                const orphanCloseReg = new RegExp(`^[\\s\\S]*?<\\/\\s*${safeTag}\\s*>\\s*`, 'i');
-                text = text.replace(orphanCloseReg, '');
-            }
-
-            // 3. 末尾只有开标签但未闭合的残留块排除
-            if (!new RegExp(`<\\/\\s*${safeTag}\\s*>`, 'i').test(text)) {
-                const unclosedTailReg = new RegExp(`<\\s*${safeTag}[^>]*>[\\s\\S]*$`, 'i');
-                text = text.replace(unclosedTailReg, '');
-            }
-        }
-    }
-
-    // 阶段三【网页与排版杂质清洗】
-    text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    text = text.replace(/<br\s*[\/]?>/gi, '\n');
-    text = text.replace(/<\/p>/gi, '\n\n');
-    text = text.replace(/<\/?[a-zA-Z0-9_\-~.:#]+[^>]*>/g, '');
-
-    text = text
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-
-    // 阶段四【中文出版小说段落规范化】
-    const paragraphs = text
-        .split(/\r?\n+/)
-        .map(p => p.trim())
-        .filter(p => p.length > 0);
-
-    const shouldIndent = settings.indent_paragraphs !== false;
-    if (shouldIndent) {
-        return paragraphs.map(p => `　　${p}`).join('\n\n');
-    }
-
-    return paragraphs.join('\n\n');
+    return m[0];
 }
+
+const ENGINE = [
+    extract('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
+    extract('DEFAULT_SETTINGS', /const DEFAULT_SETTINGS = \{[\s\S]*?\n\};/),
+    extract('parseTagList', /function parseTagList\(str\) \{[\s\S]*?\n\}/),
+    extract('cleanNovelText', /function cleanNovelText\(rawText, settings = \{\}\) \{[\s\S]*?\n\}/)
+].join('\n\n');
+
+const { cleanNovelText } = new Function(ENGINE + '\nreturn { cleanNovelText };')();
 
 // 测试各种情况
 const testCases = [
@@ -166,6 +70,17 @@ const testCases = [
         input: '这是草稿分析过程...\n</fox_draft>\n真正的章节正文内容。',
         settings: { exclude_tags: '<fox_draft>, <status>' },
         expected: '　　真正的章节正文内容。'
+    },
+    {
+        name: '测试8: 不传 settings 时黑名单回退 DEFAULT_SETTINGS.exclude_tags（v2.0.0 兜底路径）',
+        input: '开篇无头思考...\n</reasoning>\n<system>系统提示块</system>正文照常。',
+        expected: '　　正文照常。'
+    },
+    {
+        name: '测试9: indent_paragraphs=false 时不加首行缩进',
+        input: '第一段。\n第二段。',
+        settings: { indent_paragraphs: false },
+        expected: '第一段。\n\n第二段。'
     }
 ];
 
@@ -185,5 +100,5 @@ for (const tc of testCases) {
 if (!allPassed) {
     process.exit(1);
 } else {
-    console.log('\n所有思考标签排除测试全部通过！');
+    console.log('\n所有思考标签排除测试全部通过！（引擎实现抽自 index.js 真实源码）');
 }
