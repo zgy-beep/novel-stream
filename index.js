@@ -401,6 +401,8 @@ function parseTagList(str) {
         .filter(Boolean);
 }
 
+const messageTagCache = new WeakMap();
+
 /**
  * 扫描会话中出现过的自定义标签，按出现次数降序返回（供「会话标签检测器」展示）
  * 闭标签 </tag> 与 DOCTYPE 天然不匹配；HTML 注释与 script/style 块先剥离——
@@ -414,18 +416,27 @@ function scanChatTags(chatLog) {
     if (!Array.isArray(chatLog)) return { tags: [], total: 0 };
     const tagRegex = /<\s*([a-zA-Z][a-zA-Z0-9_\-~.:#]*)[^>]*>/g;
     for (const m of chatLog) {
-        const text = (m && typeof m.mes === 'string') ? m.mes : '';
-        if (!text) continue;
-        const stripped = text
-            .replace(/<!--[\s\S]*?-->/g, '')
-            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-        tagRegex.lastIndex = 0;
-        let match;
-        while ((match = tagRegex.exec(stripped)) !== null) {
-            const tag = match[1].toLowerCase();
-            if (SCAN_IGNORE_TAGS.has(tag)) continue;
-            counts.set(tag, (counts.get(tag) || 0) + 1);
+        if (!m || typeof m !== 'object') continue;
+        const text = m.mes;
+        if (typeof text !== 'string' || !text) continue;
+        let cached = messageTagCache.get(m);
+        if (cached?.text !== text) {
+            const stripped = text
+                .replace(/<!--[\s\S]*?-->/g, '')
+                .replace(/<script(?=[\s>])[^>]*>[\s\S]*?<\/script>/gi, '')
+                .replace(/<style(?=[\s>])[^>]*>[\s\S]*?<\/style>/gi, '');
+            const tags = new Map();
+            tagRegex.lastIndex = 0;
+            let match;
+            while ((match = tagRegex.exec(stripped)) !== null) {
+                const tag = match[1].toLowerCase();
+                if (!SCAN_IGNORE_TAGS.has(tag)) tags.set(tag, (tags.get(tag) || 0) + 1);
+            }
+            cached = { text, tags };
+            messageTagCache.set(m, cached);
+        }
+        for (const [tag, count] of cached.tags) {
+            counts.set(tag, (counts.get(tag) || 0) + count);
         }
     }
     const sorted = [...counts.entries()]
@@ -612,28 +623,23 @@ function cleanNovelText(rawText, settings = {}) {
     return paragraphs.join('\n\n');
 }
 
-// 清洗结果缓存：同一会话内避免每条消息被 cleanNovelText 重复全量正则清洗（O(n²) 性能优化）
-const cleanTextCache = { sig: '', map: new Map() };
+// 按消息对象缓存。删除中间楼层后，位置前移的消息可继续复用清洗结果。
+const cleanTextCache = new WeakMap();
 
 function getCleanMessageSig(settings) {
-    return `${settings.include_tags || ''}|${settings.exclude_tags || ''}|${settings.indent_paragraphs !== false}`;
+    return JSON.stringify([settings.include_tags, settings.exclude_tags, settings.indent_paragraphs !== false]);
 }
 
 /**
  * 带缓存的消息清洗：设置签名变化、消息对象被替换（Regenerate/滑动分支）或 mes 被原地改写
  * （酒馆编辑消息/切换分支均直接改写 msg.mes）时自动重洗，确保缓存绝不失真
  */
-function getCleanedMessage(msg, index, settings) {
-    if (!msg) return '';
-    const sig = getCleanMessageSig(settings);
-    if (cleanTextCache.sig !== sig) {
-        cleanTextCache.sig = sig;
-        cleanTextCache.map.clear();
-    }
-    const cached = cleanTextCache.map.get(index);
-    if (cached && cached.src === msg && cached.mes === msg.mes) return cached.text;
-    const text = cleanNovelText(msg.mes || '', settings);
-    cleanTextCache.map.set(index, { src: msg, mes: msg.mes, text });
+function getCleanedMessage(msg, settings, sig) {
+    const cached = cleanTextCache.get(msg);
+    const mes = msg.mes;
+    if (cached?.sig === sig && cached.mes === mes) return cached.text;
+    const text = cleanNovelText(mes || '', settings);
+    cleanTextCache.set(msg, { sig, mes, text });
     return text;
 }
 
@@ -661,22 +667,17 @@ function computeChapters(settings, chatLog) {
     if (!Array.isArray(chatLog)) return [];
     if (!chatHasUserMessage(chatLog)) return [];
     const chapters = [];
+    const sig = getCleanMessageSig(settings);
     let no = 0;
     for (let i = 0; i < chatLog.length; i++) {
         const msg = chatLog[i];
-        if (!msg) continue;
+        if (!msg || typeof msg !== 'object') continue;
         if (msg.is_user && !settings.include_user_dialogue) continue;
-        const text = getCleanedMessage(msg, i, settings);
+        const text = getCleanedMessage(msg, settings, sig);
         if (!text) continue;
         no++;
         const speaker = msg.name || (msg.is_user ? '你' : '旁白');
         chapters.push({ index: i, no, speaker, text });
-    }
-    // 修剪清洗缓存中已不存在楼层的残留条目（删除中间楼层后索引前移，旧条目永不命中）
-    if (cleanTextCache.map.size > chatLog.length) {
-        for (const idx of cleanTextCache.map.keys()) {
-            if (idx >= chatLog.length) cleanTextCache.map.delete(idx);
-        }
     }
     return chapters;
 }
@@ -735,8 +736,6 @@ function composeNovelExport(settings, chatLog, chapters) {
 let novelPanel = null;                 // NVUI 面板控制器
 let uiRefs = {};                       // 状态行 / 导出状态行 / 导出折叠组等 DOM 引用
 let refreshTimer = 0;                  // refreshNovelUI 防抖句柄
-let activeChatKey = null;
-let lastChatLogRef = null;
 const recentExports = new Map();
 let generation = null;
 let stoppedReply = null;
@@ -922,6 +921,13 @@ function createFilterPreview() {
             lastIndex = -1;
         }
         const { chatLog, chapters, settings, generating } = model;
+        if (generating) {
+            select.disabled = true;
+            status.textContent = '正在生成，完成后更新预览。';
+            sourceText.textContent = '';
+            chapterText.textContent = '';
+            return;
+        }
         const byIndex = new Map(chapters.map((chapter) => [chapter.index, chapter]));
         let index = selected ? chatLog.indexOf(selected) : -1;
         const removed = !!selected && index < 0;
@@ -931,18 +937,18 @@ function createFilterPreview() {
         }
         selected = chatLog[index];
         lastIndex = index;
-        const entries = [];
         const options = [];
         chatLog.forEach((msg, floor) => {
             if (!msg) return;
             const no = byIndex.get(floor)?.no;
             const title = `楼层 ${floor + 1} · ${msg.name || (msg.is_user ? '你' : '旁白')}${no ? ` · 第 ${no} 章` : ''}`;
-            entries.push(title);
             options.push([title, String(floor)]);
         });
-        const signature = JSON.stringify(entries);
+        const signature = JSON.stringify(options);
         if (signature !== select.dataset.signature) {
-            select.replaceChildren(...options.map(([title, value]) => new Option(title, value)));
+            const fragment = document.createDocumentFragment();
+            options.forEach(([title, value]) => fragment.appendChild(new Option(title, value)));
+            select.replaceChildren(fragment);
             select.dataset.signature = signature;
         }
         select.value = index >= 0 ? String(index) : '';
@@ -952,11 +958,10 @@ function createFilterPreview() {
             : !chatHasUserMessage(chatLog) ? '尚未开始对话。'
             : selected.is_user && !settings.include_user_dialogue ? '当前设置未收录用户发言。'
             : '清洗后没有正文。';
-        const result = generating ? '正在生成，完成后更新预览。'
-            : chapter ? `第 ${chapter.no} 章 · 原楼层 ${index + 1}` : reason;
+        const result = chapter ? `第 ${chapter.no} 章 · 原楼层 ${index + 1}` : reason;
         status.textContent = removed ? `所选楼层已删除或被替换。 ${result}` : result;
-        sourceText.textContent = generating ? '' : selected?.mes || '';
-        chapterText.textContent = generating ? '' : chapter?.text || '';
+        sourceText.textContent = selected?.mes || '';
+        chapterText.textContent = chapter?.text || '';
     }
 
     select.addEventListener('change', () => {
@@ -1005,7 +1010,12 @@ function createRangeExport(onExport) {
     download.type = 'button';
     download.className = 'nvui-btn is-primary';
     download.textContent = '下载所选章节';
-    root.append(fields, status, download);
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.className = 'nvui-btn novel-range-confirm';
+    confirm.textContent = '确认更新后的范围';
+    confirm.hidden = true;
+    root.append(fields, status, confirm, download);
     let model;
     let range;
     let stale = false;
@@ -1024,10 +1034,19 @@ function createRangeExport(onExport) {
             stale = true;
         }
         download.disabled = !range || next.generating;
+        confirm.hidden = !stale || next.generating || count === 0;
+        confirm.disabled = !hasValidBounds(count);
         status.textContent = next.generating ? '正在生成回复。'
-            : stale ? '所选章节已变化，请重新输入起止章。'
+            : count === 0 ? '当前没有可导出的章节。'
+            : stale ? '所选章节已变化，请确认更新后的范围或修改起止章。'
             : range ? `将导出第 ${range.start} 至 ${range.end} 章，保留整书章号。`
-            : count ? `当前共 ${count} 章，请输入有效的起止章。` : '当前没有可导出的章节。';
+            : `当前共 ${count} 章，请输入有效的起止章。`;
+    }
+
+    function hasValidBounds(count) {
+        const start = from.valueAsNumber;
+        const end = to.valueAsNumber;
+        return Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start && end <= count;
     }
 
     function select() {
@@ -1036,7 +1055,7 @@ function createRangeExport(onExport) {
         const end = to.valueAsNumber;
         const { chatKey, chatLog, chapters } = model;
         stale = false;
-        range = Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start && end <= chapters.length
+        range = hasValidBounds(chapters.length)
             ? { chatKey, start, end, chapters: chapters.slice(start - 1, end).map((chapter) => ({
                 ...chapter, message: chatLog[chapter.index]
             })) }
@@ -1044,6 +1063,7 @@ function createRangeExport(onExport) {
         render(model);
     }
     inputs.forEach((input) => input.addEventListener('input', select));
+    confirm.addEventListener('click', select);
     download.addEventListener('click', () => { if (range) onExport(range); });
     root.render = render;
     return root;
@@ -1124,7 +1144,6 @@ function createTagDetector(options) {
     }
 
     root.render = render;
-    render();
     return root;
 }
 
@@ -1485,10 +1504,11 @@ function buildNovelPanel(deps, kit = globalThis.NVUI) {
     panel.open = function () {
         panel.setTab('serial');
         applyAccOpen();
-        deps.refreshStatus();
         rawOpen();
+        deps.refreshStatus();
         guardOverlayClick(panel.overlay);
     };
+    const exportButtons = panel.panel.querySelectorAll('.nvui-panel-actions .nvui-icon-btn, .nvui-panel-footer .is-primary');
 
     return {
         panel,
@@ -1504,7 +1524,8 @@ function buildNovelPanel(deps, kit = globalThis.NVUI) {
                 userAcc.setSummary(effective.include_user_dialogue ? '已融入' : '未融入');
                 includeAcc.setSummary(includeSummaryOf(effective.include_tags));
                 excludeAcc.setSummary(excludeSummaryOf(effective.exclude_tags));
-                tagDetector.render();
+                exportButtons.forEach((button) => { button.disabled = model.generating; });
+                if (!model.generating) tagDetector.render();
                 if (previewAcc.classList.contains('is-open')) preview.render(model);
                 rangeExport.render(model);
             }
@@ -1535,14 +1556,6 @@ function isNovelGenerating(chatKey) {
     return stRuntime.is_send_press === true || !!document.getElementById('mes_stop')?.getClientRects().length;
 }
 
-function syncNovelChat(chatKey, chatLog) {
-    if (chatKey !== activeChatKey || chatLog !== lastChatLogRef) {
-        cleanTextCache.map.clear();
-        activeChatKey = chatKey;
-        lastChatLogRef = chatLog;
-    }
-}
-
 /** 合并连续的聊天事件。导出始终读取实时聊天和宿主生成状态。 */
 function refreshNovelUI() {
     if (refreshTimer) clearTimeout(refreshTimer);
@@ -1551,13 +1564,14 @@ function refreshNovelUI() {
 
 /** 立即刷新：重算章节 → 面板状态行 + 魔法棒副标（导出口径与计数同源） */
 function applyNovelUIRefresh() {
+    syncWandEntryState();
+    if (!novelPanel?.dialog.open || novelPanel.overlay.classList.contains('is-closing')) return;
     const context = getStContext();
     const settings = getEffectiveSettings(context);
     const chatLog = getCurrentChatLog();
-    const chatKey = getChatKey();
-    syncNovelChat(chatKey, chatLog);
+    const chatKey = getChatKey(context);
     const generating = isNovelGenerating(chatKey);
-    const chapters = computeChapters(settings, chatLog);
+    const chapters = generating ? [] : computeChapters(settings, chatLog);
     uiRefs.renderContent?.({
         chatKey, chatLog, chapters, settings, generating,
         overridden: !!getNovelOverrides(context),
@@ -1584,7 +1598,6 @@ function applyNovelUIRefresh() {
         }
     }
     updateExportStatusLine(chatKey);
-    syncWandEntryState();
 }
 
 function formatExportTime(d) {
@@ -1631,7 +1644,7 @@ function exportNovelText(kit = globalThis.NVUI, range) {
         selected = range ? getRangeChapters(chapters, chatLog, chatKey, range) : chapters;
         if (!selected) {
             applyNovelUIRefresh();
-            kit.showToast({ message: '所选章节已变化，请重新输入起止章。', type: 'warn' });
+            kit.showToast({ message: '所选章节已变化，请确认更新后的范围。', type: 'warn' });
             return;
         }
         composed = composeNovelExport(settings, chatLog, selected);

@@ -92,7 +92,7 @@ const FNS = [
     'faIcon', 'createPanelHeading', 'createStatusLineRow', 'createSegmented', 'createTagField',
     'createTagDetector', 'createFilterPreview', 'createRangeExport', 'getRangeChapters',
     'bindBottomNavArrowKeys', 'guardOverlayClick', 'buildNovelPanel',
-    'getChatKey', 'isNovelGenerating', 'syncNovelChat',
+    'getChatKey', 'isNovelGenerating',
     'getNovelOverrides', 'getEffectiveSettings', 'persistNovelOverrides', 'setNovelOverrideEnabled', 'setNovelFilterSettings',
     'formatExportTime', 'updateExportStatusLine', 'exportNovelText', 'applyNovelUIRefresh',
     'injectWandEntry', 'syncWandEntryState'
@@ -100,7 +100,8 @@ const FNS = [
 
 const PAGE_SRC = [
     extractConstObj('DEFAULT_SETTINGS'),
-    'const cleanTextCache = { sig: \'\', map: new Map() };',
+    extractConst('cleanTextCache', /const cleanTextCache = new WeakMap\(\);/),
+    extractConst('messageTagCache', /const messageTagCache = new WeakMap\(\);/),
     extractConst('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
     extractConst('SCAN_IGNORE_TAGS', /const SCAN_IGNORE_TAGS = new Set\([\s\S]*?\n\]\);/),
     extractConst('AUX_WORDS', /const AUX_WORDS = new Set\([^;]*\);/),
@@ -140,9 +141,8 @@ function __chatLog() {
 // 模块级状态（与 index.js 同名同形）
 let novelPanel = null;
 let uiRefs = {};
-let activeChatKey = null, generation = null, stoppedReply = null;
+let generation = null, stoppedReply = null;
 const recentExports = new Map();
-let lastChatLogRef = null;
 const stRuntime = {};
 function getStContext() { return ctx; }
 function getSettings() { return __settings; }
@@ -573,6 +573,15 @@ async function checkChatWorkflow(page) {
     const footer = page.locator('.nvui-panel-footer .is-primary');
     const clickTab = (name) => page.locator('.nvui-tab[data-tab="' + name + '"]').click();
     const openAcc = (title) => page.getByRole('button', { name: new RegExp(title) }).click();
+    await host(() => {
+        let reads = 0;
+        const h = window.__host;
+        h.setChat('A', [{ is_user: true, mes: '开始。' }, { get mes() { reads++; return '<story>隐藏面板测试</story>'; } }]);
+        h.emit('MESSAGE_RECEIVED', 1);
+        window.__novelClosedReads = () => reads;
+    });
+    await page.waitForTimeout(350);
+    check('关闭面板时跳过正文处理和标签扫描', await host(() => window.__novelClosedReads()), 0);
     await page.evaluate(() => { document.getElementById('extensionsMenu').hidden = false; });
     await page.locator('#novel-wand-menu-item').click();
     await host(() => window.__host.setChat('A', [
@@ -594,8 +603,10 @@ async function checkChatWorkflow(page) {
         h.busy(true);
         h.emit('GENERATION_STARTED', 'regenerate');
         h.chat[2].mes = '半截生成';
+        document.querySelector('.nvui-panel-footer .is-primary').click();
     });
-    await footer.click();
+    await page.waitForFunction(() => document.querySelector('.nvui-panel-footer .is-primary').disabled);
+    checkTrue('生成中禁用导出按钮', await footer.isDisabled());
     check('生成中禁止半截下载', await host(() => window.__host.downloads.length), 1);
     await host(() => {
         const h = window.__host;
@@ -669,6 +680,9 @@ async function checkChatWorkflow(page) {
         [...document.querySelectorAll('button')].find((button) => button.textContent === '下载所选章节').click();
     });
     check('防抖期间也不能导出已经失效的范围', await host(() => window.__host.downloads.length), texts.length);
+    await page.getByRole('button', { name: '确认更新后的范围' }).click();
+    await range.click();
+    checkTrue('确认更新后的范围即可导出当前内容', (await host(() => window.__host.texts())).at(-1).includes('更新的分支。'));
 
     await host(() => {
         const h = window.__host;
@@ -685,7 +699,8 @@ async function checkChatWorkflow(page) {
         h.setActor(1);
     });
     const count = await host(() => window.__host.downloads.length);
-    await footer.click();
+    await page.waitForFunction(() => document.querySelector('.nvui-panel-footer .is-primary').disabled);
+    await footer.evaluate((button) => button.click());
     check('群聊切换发言成员后仍阻止生成中导出', await host(() => window.__host.downloads.length), count);
     await host(() => {
         const h = window.__host;
@@ -1075,6 +1090,7 @@ async function checkAssetStartup(browser, offline) {
         checkTrue('守卫窗口过后遮罩点击生效', (await dpage.evaluate(() => window.__api.openState())).hidden === true);
 
         console.log('\n=== ⑩ AC-15 状态行四态 + 切聊天重算 ===');
+        await dpage.evaluate(() => window.__api.open());
         await dpage.evaluate(() => window.__api.setChat([
             { is_user: true, name: '你', mes: '我们该出发了。' },
             { is_user: false, name: '艾莉丝', mes: '清晨的微风穿过树林。' },

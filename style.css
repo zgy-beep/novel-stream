@@ -194,6 +194,10 @@
     display: none;
 }
 
+.novel-range-confirm[hidden] {
+    display: none;
+}
+
 @media (max-width: 600px) {
     .novel-preview-view {
         display: block;
