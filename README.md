@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/Version-2.2.0-brightgreen.svg?style=flat-square)
+![Version](https://img.shields.io/badge/Version-2.3.0-brightgreen.svg?style=flat-square)
 ![SillyTavern](https://img.shields.io/badge/SillyTavern-%3E%3D1.12.0-blue.svg?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Docker%20%7C%20NAS%20%7C%20Termux-orange.svg?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-purple.svg?style=flat-square)
@@ -58,7 +58,7 @@
 1. 打开 SillyTavern，点击顶部栏的**扩展管理图标（积木 / 方块图标）**。
 2. 点击 **Install Extension（安装扩展）**，在输入框中粘贴仓库地址：
    ```text
-   https://github.com/zgy-beep/ST-auto-save-to-txt
+   https://github.com/zgy-beep/novel-stream
    ```
 3. 点击保存安装，完成后**刷新浏览器页面**。
 
@@ -86,6 +86,10 @@
 - **内置智能机制**（折叠组，只读说明）：问候语何时入书、消息变更后如何重新编排，以及章节如何编号。
 
 ### 过滤页：标签检测与白 / 黑名单
+
+开启「为当前会话单独设置过滤和主角对白」后，白名单、黑名单和主角对白会随当前会话保存。关闭此开关即可恢复来自全局的设置。
+
+- **过滤预览**显示选中楼层的原文、入书正文和章号。手机上通过下拉框切换原文和正文。修改过滤规则会立即刷新预览。
 
 玩酒馆最头疼的就是预设带有的 `<status>` 状态栏、`<think>` 思考过程、`<ooc>` 闲聊杂项。本插件提供双重过滤机制，思考链由引擎自动识别，无需手动填写。
 
@@ -128,6 +132,9 @@
   - 纯前端本地下载，即点即存，文件带 UTF-8 BOM 与《书名》扉页；
   - 状态行显示最近一次导出的文件名、章节数与时间（如「今天 21:36 · 第 12 章」），成功后弹出一次性提示；
   - 当前聊天没有可导出的有效章节时（例如过滤规则过严），会弹出警告且不产生下载——请先开始对话，或回到「过滤」页检查白 / 黑名单。
+- **按章节范围导出**：输入起止章，下载的 TXT 保留整书章号。若删除消息、切换分支或更改规则使所选内容变化，需重新输入范围。
+
+删除消息后，下一次下载会按剩余消息重新编号。重新生成时暂缓导出，生成落定后可下载当前分支。若停止生成时酒馆保留了部分回复，导出提示会说明。已经下载的文件保留下载当时的内容。
 
 ---
 

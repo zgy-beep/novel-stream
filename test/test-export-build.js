@@ -38,9 +38,9 @@ const ENGINE = [
     extract('getAccountPrefix', /function getAccountPrefix\(\) \{[\s\S]*?\n\}/),
     extract('getBookTitle', /function getBookTitle\(settings, speakerName = ''\) \{[\s\S]*?\n\}/),
     extract('getBookFileName', /function getBookFileName\(settings\) \{[\s\S]*?\n\}/),
-    extract('buildNovelText', /function buildNovelText\(settings, chatLog\) \{[\s\S]*?\n\}/),
-    extract('composeNovelExport', /function composeNovelExport\(settings, chatLog\) \{[\s\S]*?\n\}/)
-].join('\n\n');
+    extract('buildNovelText', /function buildNovelText\([^\n]*\) \{[\s\S]*?\n\}/),
+    extract('composeNovelExport', /function composeNovelExport\([^\n]*\) \{[\s\S]*?\n\}/)
+].join('\n\n') + '\nfunction getStContext() { return ctx; }';
 
 // getBookTitle 读酒馆上下文：ctx / characters_raw / this_chid_raw / window 以参数注入桩
 const ctxStub = {
