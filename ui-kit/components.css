@@ -1,7 +1,7 @@
 /**
  * SillyTavern 插件通用 UI Kit · 组件样式
  * ------------------------------------------------------------------
- * 版本：ui-kit v2.3.0；依赖：tokens.css（必须先引入或先拼进来）
+ * 版本：ui-kit v3.1.1；依赖：tokens.css（必须先引入或先拼进来）
  *
  * 本目录是独立项目（自带 package.json / LICENSE / CHANGELOG / test/），
  * 可整目录复制/移动到任意文件夹或仓库，不依赖任何外部文件。
@@ -17,12 +17,13 @@
  *   1. 所有选择器都必须以 .nvui- / dialog.nvui-tl 开头，禁止裸元素选择器，
  *      避免污染酒馆宿主与同页其它扩展；
  *   2. 颜色一律走 token（禁止硬编码 #hex / rgb()），换主题只改 tokens.css；
- *   3. !important 只允许出现在「对抗宿主全局 checkbox 样式」的隔离规则与
- *      prefers-reduced-motion 降级块里。
+ *   3. !important 只允许出现在「对抗宿主全局 checkbox / 表单控件样式」的隔离规则与
+ *      prefers-reduced-motion 降级块里；全文件合计 14 条（原有 7 + 宿主表单隔离 7；
+ *      v2.7.0 仅把既有 7 条扩展到 opt-in 的 .nvui-form-scope，不新增声明）。
  *
  * 组件清单（预览：ui-kit/preview.html；规范：ui-kit/README.md）：
  *   作用域 / top-layer 载体 / 浮层与弹窗（玻璃 + 进出场）/ 图标按钮 / 按钮与按钮组 /
- *   胶囊开关行 / 输入行 / 标签页（可选粘连指示器）/ 折叠面板（高度动画）/ 区块标题 / 提示与告警 /
+ *   胶囊开关行 / 独立复选框 / 输入行 / 标签页（可选粘连指示器）/ 折叠面板（高度动画）/ 区块标题 / 提示与告警 /
  *   状态行与状态点 / 徽标与标签块 / 空态与加载 / 骨架屏与进度条 / 悬浮面板 / 工具提示 /
  *   吐司 / 玻璃工具类与实心模式 / 布局工具 / 动效工具类 /
  *   SillyTavern 插件面板布局标准（桌面居中面板 / 手机底部抽屉 + 底部导航）。
@@ -64,10 +65,12 @@
  * 2. 浮层载体（SillyTavern 兼容关键）
  * --------------------------------------------------------------------------
  * 为什么用 <dialog class="nvui-tl"> 当载体：
- *   1. 非模态 dialog.show() 不会给文档加 inert，宿主 UI 全程可交互
+ *   1. 酒馆 html 上存在 transform，使 position:fixed 的包含块变成文档盒子，
+ *      手机端会把浮层推出可视区；dialog 载体统一承接，避免逐个浮层处理；
+ *   2. 非模态 dialog.show() 不会给文档加 inert，宿主 UI 全程可交互
  *      （showModal() 才进 top layer，但 inert 全文档会让酒馆侧边栏/输入框
  *      集体失灵，故 kit 禁用模态）；
- *   2. UA 对 dialog[open] 的默认样式是 display:block 且内外边距归零，
+ *   3. UA 对 dialog[open] 的默认样式是 display:block 且内外边距归零，
  *      比裸 div 省心。
  *
  * 实测真相（2026-10，Edge 152 中性页 + 酒馆对照实验证实，勿凭直觉改）：
@@ -81,6 +84,17 @@
  * 因此：层级 = 载体自身 z-index 压过宿主竞争上限（约 29999），子浮层
  * 再各自带 floating / overlay / tooltip 档。载体本身不吃指针事件，只把
  * 指针放行给子浮层（含吐司堆栈）。
+ *
+ * 层级档位（tokens.css §层级）：
+ *   载体 dialog.nvui-tl            → --nvui-z-layer   （1000000）
+ *   吐司载体 .nvui-tl-toast        → --nvui-z-tooltip （1000030，高于面板载体）
+ *   子浮层 .nvui-floating / overlay → --nvui-z-floating / --nvui-z-overlay
+ *
+ * 补充（层叠上下文，实测勿改）：
+ *   position:fixed **总是**创建层叠上下文 —— 载体内部子元素的 z-index
+ *   再大也只在载体内部生效，无法越过宿主的高 z-index 区域。因此载体自身
+ *   必须显式给一个高于宿主的 z-index，否则浮层会被宿主内容压住。
+ *   多个载体同级时由 DOM 顺序决定，故吐司载体另用 .nvui-tl-toast 提级。
  *
  * DOM：
  *   <dialog class="nvui-tl"><div class="nvui-overlay"> ... </div></dialog>
@@ -100,12 +114,57 @@ dialog.nvui-tl {
     overflow: visible;
     background: transparent;
     color: inherit;
-    z-index: var(--nvui-z-layer); /* 非模态 dialog 无 top layer 提升，档位即生命线 */
+    /* 载体层级：必须高于宿主常规层叠（酒馆最高约 30000）。
+       用专属的 --nvui-z-layer 档（1000000），不与子浮层档位混用。
+       多个载体同级时由 DOM 顺序决定，故吐司载体另用 .nvui-tl-toast 提级。 */
+    z-index: var(--nvui-z-layer);
     pointer-events: none; /* 载体透明放行；子浮层各自恢复 auto */
+}
+
+/* 吐司载体：常驻存在且需始终盖过面板，故比面板载体再高一级 */
+dialog.nvui-tl.nvui-tl-toast {
+    z-index: var(--nvui-z-tooltip);
 }
 
 dialog.nvui-tl:not([open]) {
     display: none;
+}
+
+/* --------------------------------------------------------------------------
+ * 宿主模态降级态（v2.4.0 新增）
+ * --------------------------------------------------------------------------
+ * 实测真相（真实 ST 宿主，见 README §13.7）：
+ *   宿主用 `dialog.showModal()` 打开弹窗时，kit 浮层**无法**压过它 ——
+ *   原因不是 z-index，而是模态会给整个文档加 `inert`，inert 元素不参与
+ *   命中测试。任何 z-index / top layer 手段都无效（`popover=manual` 亦然）。
+ *
+ *   此时正确的行为不是「硬压过去」，而是**主动让位**：
+ *   载体加 `.is-host-modal` → 整体降级（不可点 + 压暗），避免用户以为
+ *   「面板坏了点不动」，同时明确告知宿主模态优先。
+ *
+ *   由 `NVUI.syncHostModalState()` 自动维护（监听 `dialog:modal` 数量变化）。
+ * -------------------------------------------------------------------------- */
+dialog.nvui-tl.is-host-modal {
+    /* 模态期间不可交互：kit 浮层内的所有内容一并让位 */
+    pointer-events: none;
+    /* 视觉降级：整体压暗，明确「当前由宿主模态主导」 */
+    opacity: 0.35;
+    filter: grayscale(0.6);
+    transition: opacity var(--nvui-duration-base) var(--nvui-ease-standard),
+        filter var(--nvui-duration-base) var(--nvui-ease-standard);
+}
+
+/* 恢复时不要有淡入拖尾 */
+dialog.nvui-tl:not(.is-host-modal) {
+    transition: opacity var(--nvui-duration-base) var(--nvui-ease-standard),
+        filter var(--nvui-duration-base) var(--nvui-ease-standard);
+}
+
+/* 降级态下的子浮层同样不可点 */
+dialog.nvui-tl.is-host-modal > .nvui-overlay,
+dialog.nvui-tl.is-host-modal > .nvui-floating,
+dialog.nvui-tl.is-host-modal > .nvui-toast-stack {
+    pointer-events: none;
 }
 
 dialog.nvui-tl > .nvui-overlay,
@@ -234,11 +293,8 @@ dialog.nvui-tl > .nvui-toast-stack {
     display: none;
 }
 
+/* v3.0.0：flex / 对齐 / gap 由按钮组统一规则提供（见 §按钮组），这里只剩容器语义 */
 .nvui-modal-footer {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--nvui-space-2);
     flex-shrink: 0;
     padding: var(--nvui-space-3) var(--nvui-space-4);
     border-top: 1px solid var(--nvui-glass-line);
@@ -388,16 +444,38 @@ dialog.nvui-tl > .nvui-toast-stack {
     width: 100%;
 }
 
-/* 按钮组：等宽换行（桌面并排、窄屏自动换行） */
-.nvui-btn-row {
+/* v3.0.0：按钮组的排版声明只写一次。
+   .nvui-actions（正式名）/ .nvui-btn-row（v2 旧名，v3.x 内保留 alias）/ 两个 footer
+   此前是四段几乎相同的 flex + gap，改一处要同步四处，行为差异也没人记得住。
+   差异只保留两处：操作区右对齐、.nvui-btn-row 内的按钮等宽。
+   用 :where() 包住 → 零 specificity，下游一条普通规则即可改回左对齐或自定义 gap。 */
+:where(.nvui-actions, .nvui-btn-row, .nvui-panel-footer, .nvui-modal-footer) {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--nvui-space-2);
+}
+
+:where(.nvui-actions, .nvui-panel-footer, .nvui-modal-footer) {
+    justify-content: flex-end;
 }
 
 .nvui-btn-row > .nvui-btn {
     flex: 1 1 140px;
 }
+
+/* v2.8.0 默认间距契约：正文内裸相邻按钮默认 8px（零 specificity，可被普通类覆盖）；
+ * 已有 gap 的分组/底部容器重置，避免双倍间距。 */
+:where(.nvui-panel-body, .nvui-modal-body, .nvui-floating) > .nvui-btn + .nvui-btn {
+    margin-inline-start: var(--nvui-space-2);
+}
+
+:where(.nvui-btn-row, .nvui-panel-footer, .nvui-modal-footer, .nvui-actions) > .nvui-btn {
+    margin-inline-start: 0;
+}
+
+/* v3.0.0：.nvui-actions 的 flex / gap 已并入上面的按钮组统一规则（alias 关系），
+   这里不再重复声明，避免再次分叉。 */
 
 /* ==========================================================================
  * 6. 胶囊开关行（含酒馆宿主 checkbox 样式隔离 + 弹簧回弹）
@@ -456,7 +534,12 @@ dialog.nvui-tl > .nvui-toast-stack {
     transition: background-color var(--nvui-transition), transform var(--nvui-duration-fast) var(--nvui-ease-standard);
 }
 
-/* 压掉宿主的 ::before 对勾（元素级隔离见组件说明；这是唯一允许 !important 的地方） */
+/* 压掉宿主的 ::before 对勾（.nvui-switch-row 与独立 .nvui-checkbox 共用；
+ * 宿主 checkbox 隔离是 !important 白名单里的既有类别，不扩张到其它属性） */
+.nvui-checkbox[type="checkbox"]::before,
+.nvui-checkbox[type="checkbox"]:checked::before,
+.nvui-checkbox[type="checkbox"]:indeterminate::before,
+.nvui-checkbox[type="checkbox"]:focus-visible::before,
 .nvui-switch-row input[type="checkbox"]::before,
 .nvui-switch-row input[type="checkbox"]:checked::before,
 .nvui-switch-row input[type="checkbox"]:focus-visible::before {
@@ -515,6 +598,96 @@ dialog.nvui-tl > .nvui-toast-stack {
 }
 
 /* ==========================================================================
+ * 6.1 独立复选框（批量选择；与 .nvui-switch-row 胶囊开关互补）
+ * --------------------------------------------------------------------------
+ * DOM：<input type="checkbox" class="nvui-checkbox">
+ * 16px 小方块，保留原生 input 语义（Tab / Space / :checked / :indeterminate）。
+ *
+ * 宿主兼容：酒馆给所有 input[type=checkbox] 挂了 appearance:none +
+ * display:grid + 显式宽高/描边/底色/阴影/transform/filter + ::before 对勾。
+ * 这些元素选择器（0,1,1）会压过裸类（0,1,0）。组件选择器统一写成
+ * .nvui-checkbox[type="checkbox"]（0,2,0），只命中 kit 自己的 class，
+ * 既压过宿主元素规则，又不接管宿主其它 checkbox，且不新增 !important。
+ * ========================================================================== */
+.nvui-checkbox[type="checkbox"] {
+    position: relative;
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--nvui-line-2);
+    border-radius: var(--nvui-radius-sm);
+    background: var(--nvui-input-bg);
+    box-shadow: none;
+    outline: none;
+    overflow: visible;
+    filter: none;
+    transform: none;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    vertical-align: middle;
+    box-sizing: border-box;
+    transition: background-color var(--nvui-transition),
+        border-color var(--nvui-transition);
+}
+
+/* 对勾：::after + border 旋转（与开关滑钮同一套纯 CSS 思路） */
+.nvui-checkbox[type="checkbox"]::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid var(--nvui-on-accent);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) scale(0.8);
+    opacity: 0;
+    transition: opacity var(--nvui-transition), transform var(--nvui-transition);
+}
+
+/* hover 只改描边；选中/部分选中保持主色，故状态规则放在 hover 之后 */
+.nvui-checkbox[type="checkbox"]:hover {
+    border-color: var(--nvui-dash);
+}
+
+.nvui-checkbox[type="checkbox"]:checked,
+.nvui-checkbox[type="checkbox"]:indeterminate {
+    background: var(--nvui-accent);
+    border-color: var(--nvui-accent);
+}
+
+.nvui-checkbox[type="checkbox"]:checked::after {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
+}
+
+/* 部分选中：横杠。原生 :indeterminate 由 JS 属性设置 */
+.nvui-checkbox[type="checkbox"]:indeterminate::after {
+    left: 3px;
+    top: 6px;
+    width: 8px;
+    height: 2px;
+    border: 0;
+    background: var(--nvui-on-accent);
+    opacity: 1;
+    transform: none;
+}
+
+.nvui-checkbox[type="checkbox"]:focus-visible {
+    outline: var(--nvui-focus-ring-w) solid var(--nvui-focus-ring-color);
+    outline-offset: var(--nvui-focus-ring-offset);
+}
+
+.nvui-checkbox[type="checkbox"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ==========================================================================
  * 7. 输入行（左标题 + 右控件；扁平内嵌表面）
  * --------------------------------------------------------------------------
  * DOM：
@@ -544,6 +717,42 @@ dialog.nvui-tl > .nvui-toast-stack {
     min-width: 0;
     color: var(--nvui-text-2);
     font-size: var(--nvui-fs-md);
+}
+
+/* v2.9.0（GH-#18 B5）：多行文本 + 提示 / 错误消息。
+   textarea 用 .is-textarea 而不是 input.type —— 14 种原生 input 类型里没有多行文本，
+   意图由 data-nvui-type="textarea" 暴露（与 path 伪类型同一套路）。 */
+.nvui-input.is-textarea {
+    flex: 1 1 auto;
+    min-height: calc(var(--nvui-control-h) * 2);
+    line-height: var(--nvui-lh-normal);
+    /* 只允许纵向拉伸：横向拉伸会把行布局挤坏 */
+    resize: vertical;
+}
+
+/* 有消息时整行允许换行，消息独占一行并右对齐到输入框下方 */
+.nvui-input-row.is-msg {
+    flex-wrap: wrap;
+}
+
+.nvui-input-msg {
+    flex: 1 1 100%;
+    font-size: var(--nvui-fs-xs);
+    line-height: var(--nvui-lh-tight);
+    text-align: right;
+}
+
+.nvui-input-msg.is-hint {
+    color: var(--nvui-text-3);
+}
+
+/* 错误态只染文字与输入框边线，不改背景：底色变化在玻璃面板上会脏 */
+.nvui-input-msg.is-error {
+    color: var(--nvui-danger);
+}
+
+.nvui-input-row.is-error .nvui-input {
+    box-shadow: inset 0 0 0 1px var(--nvui-danger-line);
 }
 
 .nvui-input {
@@ -604,6 +813,88 @@ dialog.nvui-tl > .nvui-toast-stack {
 .nvui-input.is-path {
     width: 200px;
     max-width: 60%;
+}
+
+/* --------------------------------------------------------------------------
+ * 7.1 宿主表单隔离（ISSUES #9）
+ * --------------------------------------------------------------------------
+ * 宿主主题常用「元素选择器 + !important」重写 input / select / textarea，
+ * 裸类 .nvui-input（0,1,0）即使作用域再深也赢不过 !important 声明。
+ * 这里在 kit 的两个真实载体 dialog.nvui-tl / .nvui-panel，以及显式 opt-in 的
+ * .nvui-form-scope 容器内夺回 token 皮肤；三者之外不接管宿主控件，保持隔离有界。
+ *
+ * v2.7.0：新增 .nvui-form-scope（显式放在任意自定义容器上才生效）。
+ * 只在既有 7 条声明里追加同一组有界选择器；dialog.nvui-tl / .nvui-panel 的选择器与
+ * specificity 保持原样，不新增声明、不新增 !important、不引入隐式作用域或全局重置。
+ * .nvui-form-scope 自身没有任何布局/定位/遮罩/模态规则，只作为隔离根的显式标记。
+ *
+ * !important 只给被宿主 !important 夺走的 4 类属性，共 7 条声明：
+ *   background / color / border（基础态 3）+ margin（select 1）+ hover background（1）
+ *   + option / optgroup 的 background / color（2）。圆角等用更高特异性恢复，不占 !important 预算。
+ * hover 的 background 必须同作用域 + !important 还原，否则会被基础态压掉。
+ * option / optgroup 是宿主下拉列表的最终渲染层，必须单独给底色与文字色。
+ * -------------------------------------------------------------------------- */
+dialog.nvui-tl input.nvui-input,
+dialog.nvui-tl select.nvui-input,
+dialog.nvui-tl textarea.nvui-input,
+.nvui-panel input.nvui-input,
+.nvui-panel select.nvui-input,
+.nvui-panel textarea.nvui-input,
+.nvui-form-scope input.nvui-input,
+.nvui-form-scope select.nvui-input,
+.nvui-form-scope textarea.nvui-input {
+    background: var(--nvui-input-bg) !important;
+    color: var(--nvui-text) !important;
+    border: none !important;
+    border-radius: var(--nvui-radius-sm);
+}
+
+/* 宿主 select 常见 margin: ... 0 !important；只对 select 还原，避免无谓扩大 */
+dialog.nvui-tl select.nvui-input,
+.nvui-panel select.nvui-input,
+.nvui-form-scope select.nvui-input {
+    margin: 0 !important;
+}
+
+/* 基础态 background !important 会压掉普通优先级的 :hover，必须同作用域还原 */
+dialog.nvui-tl input.nvui-input:hover,
+dialog.nvui-tl select.nvui-input:hover,
+dialog.nvui-tl textarea.nvui-input:hover,
+.nvui-panel input.nvui-input:hover,
+.nvui-panel select.nvui-input:hover,
+.nvui-panel textarea.nvui-input:hover,
+.nvui-form-scope input.nvui-input:hover,
+.nvui-form-scope select.nvui-input:hover,
+.nvui-form-scope textarea.nvui-input:hover {
+    background: var(--nvui-block-bg) !important;
+}
+
+/* option / optgroup 皮肤：宿主 select option 的 !important 底色会直接带进下拉列表。
+ * ISSUES #12：optgroup 行同样需要 token 底色；否则 Windows Chrome 原生弹层会把
+ * group 行画在浅色默认底上，与 --nvui-text 形成白底浅字。
+ * 复用本规则已有的 2 条 !important 声明，不新增声明、不扩大 !important 预算；
+ * .nvui-form-scope 仅复用既有 option 选择器，不另起规则（门禁见 test-ui-kit.js）。 */
+dialog.nvui-tl select.nvui-input option,
+dialog.nvui-tl select.nvui-input optgroup,
+.nvui-panel select.nvui-input option,
+.nvui-panel select.nvui-input optgroup,
+.nvui-form-scope select.nvui-input option {
+    background: var(--nvui-bg-2) !important;
+    color: var(--nvui-text) !important;
+}
+
+/* ISSUES #12：原生 select 弹层跟随 Kit 主题。只作用于两个真实载体，载体外保持
+ * 宿主 color-scheme；浅色主题类可放在祖先或载体自身上。 */
+dialog.nvui-tl select.nvui-input,
+.nvui-panel select.nvui-input {
+    color-scheme: dark;
+}
+
+.nvui-theme-light dialog.nvui-tl select.nvui-input,
+.nvui-theme-light .nvui-panel select.nvui-input,
+dialog.nvui-tl.nvui-theme-light select.nvui-input,
+.nvui-panel.nvui-theme-light select.nvui-input {
+    color-scheme: light;
 }
 
 /* ==========================================================================
@@ -832,11 +1123,14 @@ dialog.nvui-tl > .nvui-toast-stack {
     display: grid;
     grid-template-rows: 0fr;
     overflow: hidden;
-    transition: grid-template-rows var(--nvui-duration-slow) var(--nvui-ease-emphasized);
+    visibility: hidden;
+    transition: grid-template-rows var(--nvui-duration-slow) var(--nvui-ease-emphasized),
+        visibility var(--nvui-duration-slow) var(--nvui-ease-emphasized);
 }
 
 .nvui-acc.is-open .nvui-acc-body {
     grid-template-rows: 1fr;
+    visibility: visible;
 }
 
 /* 裁切层：min-height:0 让 0fr 真正塌陷，overflow:hidden 裁掉展开内容。
@@ -1131,6 +1425,9 @@ dialog.nvui-tl > .nvui-toast-stack {
     inset: 0;
     background: linear-gradient(90deg, transparent, var(--nvui-skeleton-shine), transparent);
     transform: translateX(-100%);
+    /* NEW-13：扫光是纯 transform 位移动画（不触发 layout），
+       提前提升为合成层，避免骨架屏批量渲染时每条都跑一次主线程动画。 */
+    will-change: transform;
     animation: nvui-shimmer var(--nvui-shimmer-duration) var(--nvui-ease-standard) infinite;
 }
 
@@ -1180,7 +1477,19 @@ dialog.nvui-tl > .nvui-toast-stack {
     inset: 0;
     background: linear-gradient(90deg, transparent, var(--nvui-skeleton-shine), transparent);
     transform: translateX(-100%);
+    /* NEW-13：同上，纯 transform 扫光，提升为合成层动画。 */
+    will-change: transform;
     animation: nvui-shimmer var(--nvui-shimmer-duration) var(--nvui-ease-standard) infinite;
+}
+
+/* v2.2.0 修订补丁（ISSUES.md #11）：空闲（0%）与完成（100%）时停止扫光。
+ * 扫光是「进行中」的语义装饰 —— 0% 还没开始、100% 已经结束，此时继续跑
+ * 无限循环动画纯属浪费合成层资源。状态类由 NVUI.progress().setValue() 自动
+ * 维护；手写 DOM 时可按需手动加 .is-idle / .is-complete（可选，不加则行为同旧版）。
+ * 不确定进度（is-indeterminate）永远保持扫光，因为它本身就表示「进行中」。 */
+.nvui-progress.is-idle .nvui-progress-bar::after,
+.nvui-progress.is-complete .nvui-progress-bar::after {
+    animation: none;
 }
 
 .nvui-progress.is-ok .nvui-progress-bar {
@@ -1199,6 +1508,33 @@ dialog.nvui-tl > .nvui-toast-stack {
 .nvui-progress.is-indeterminate .nvui-progress-bar {
     width: 40%;
     animation: nvui-progress-indeterminate var(--nvui-shimmer-duration) var(--nvui-ease-standard) infinite;
+}
+
+/* v2.9.0（GH-#21 第 2 条）：可选可视标题与数值。
+   默认不生成；由 progress({ showLabel: true, showValue: true }) 产出外层容器，
+   轨道仍是原来的 .nvui-progress，既有 DOM / 类名 / aria 全部不变。
+   可视文本由 JS 标 aria-hidden —— 语义由轨道的 role=progressbar + aria-valuenow 承担。 */
+.nvui-progress-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--nvui-space-1) var(--nvui-space-2);
+}
+
+.nvui-progress-field > .nvui-progress {
+    flex: 1 1 100%;
+}
+
+.nvui-progress-field > [data-nvui-part="label"] {
+    font-size: var(--nvui-fs-xs);
+    color: var(--nvui-text-2);
+}
+
+.nvui-progress-field > [data-nvui-part="value"] {
+    margin-left: auto;
+    font-size: var(--nvui-fs-xs);
+    color: var(--nvui-text-2);
+    font-variant-numeric: tabular-nums;
 }
 
 /* ==========================================================================
@@ -1348,6 +1684,33 @@ dialog.nvui-tl > .nvui-toast-stack {
     -webkit-backdrop-filter: blur(var(--nvui-glass-blur-sm)) saturate(var(--nvui-glass-saturate));
     backdrop-filter: blur(var(--nvui-glass-blur-sm)) saturate(var(--nvui-glass-saturate));
     box-shadow: none;
+}
+
+/* v2.7.2 宿主禁用 blur 时的「近不透明回退」：
+ * 运行时会探测实际计算值（例如 SillyTavern Fast UI 默认 body.no-blur）；
+ * 命中时给根节点加 .nvui-glass-fallback，保留极轻透出感而不是整块纯实心。
+ * 背景 = token 派生 97% 不透明（color-mix --nvui-bg-2 97% + transparent）：
+ * 深色 text/text-2 = 13.23/6.02、浅色 12.88/6.42，AA 达标；
+ * 有效宿主透出约 1.1%（深）/ 2.1%（浅），不会出现可读的聊天文字重影。
+ * 不支持 color-mix 的浏览器退回上一行 --nvui-glass-bg-strong（0.80）。
+ * 规则写在 .nvui-solid 之前且 specificity 相同 → 用户主动 .nvui-solid 仍可强制全实心。 */
+.nvui-glass-fallback .nvui-overlay {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.nvui-glass-fallback .nvui-modal,
+.nvui-glass-fallback .nvui-panel,
+.nvui-glass-fallback .nvui-floating,
+.nvui-glass-fallback .nvui-tooltip,
+.nvui-glass-fallback .nvui-toast,
+.nvui-glass-fallback .nvui-glass {
+    /* 真实聊天文本密集的宿主上 0.80 仍会透出可读重影；用 token 派生 97% 不透明色，
+       保留极轻的玻璃透出感。不支持 color-mix 的浏览器退回上一行（0.80 半透明 strong 档）。 */
+    background: var(--nvui-glass-bg-strong);
+    background: color-mix(in srgb, var(--nvui-bg-2) 97%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
 }
 
 /* 实心扁平模式：手动关闭玻璃（也用于「不喜欢透明」的用户偏好） */
@@ -1791,30 +2154,145 @@ dialog.nvui-tl > .nvui-toast-stack {
  *   </div></dialog>
  *
  * 响应式规则（断点 600px，与 Kit 其它组件一致）：
- *   电脑 >600px：overlay 居中、panel 定宽 --nvui-panel-width（880px）并限高 88vh；
+ *   电脑 >600px：overlay 居中、panel 定宽 --nvui-panel-width（720px）并限高 88vh；
  *                显示顶部 tabs，隐藏底部导航与拖拽把手。
  *   手机 <=600px：overlay 底部对齐、panel 全宽底部抽屉（92dvh、仅上圆角）；
  *                隐藏顶部 tabs，显示拖拽把手与底部图标导航；底部导航自动加 safe-area。
  * ========================================================================== */
 .nvui-overlay.is-panel {
     padding: var(--nvui-space-4);
+    /* v2.7.2 面板态玻璃：遮罩更透 + 更强磨砂，让面板背后的内容可见并被明显模糊 */
+    background: color-mix(in srgb, var(--nvui-bg) 20%, transparent);
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 2)) saturate(160%);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 2)) saturate(160%);
 }
 
 .nvui-panel {
     display: flex;
     flex-direction: column;
-    /* v2.1.1：固定尺寸，折叠/展开内容不会改变面板外框（宽 880 上限、高 88vh） */
-    width: min(var(--nvui-panel-width), 100%);
-    height: var(--nvui-panel-max-h);
+    /* v2.1.1：固定尺寸，折叠/展开内容不会改变面板外框（宽 720 上限、高 88vh）
+       v3.0.0：尺寸载体由内联 px 改成 CSS 变量（--nvui-panel-w / --nvui-panel-h）。
+       变量留空时回落到 kit 默认值，因此「未设变量」与 v2.x「无内联宽高」视觉一致；
+       下游写普通 CSS 即可接管，不必再和元素上的内联声明抢优先级。 */
+    width: var(--nvui-panel-w, min(var(--nvui-panel-width), 100%));
+    height: var(--nvui-panel-h, var(--nvui-panel-max-h));
     max-height: var(--nvui-panel-max-h);
     min-height: 0;
     overflow: hidden;
-    background: var(--nvui-glass-bg);
-    -webkit-backdrop-filter: blur(var(--nvui-glass-blur)) saturate(var(--nvui-glass-saturate));
-    backdrop-filter: blur(var(--nvui-glass-blur)) saturate(var(--nvui-glass-saturate));
+    /* v2.7.2 面板态玻璃：透明面板 + 背后强模糊；顶部保留一层 token 派生柔光，
+     * 让玻璃有受光感而不是一块纯色板。 */
+    background:
+        linear-gradient(160deg, var(--nvui-block-bg), transparent 42%),
+        color-mix(in srgb, var(--nvui-bg) 30%, transparent);
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.12);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.12);
     border-radius: var(--nvui-radius-xl);
     box-shadow: var(--nvui-shadow-modal);
     color: var(--nvui-text);
+}
+
+/* v2.9.0（GH-#18 B4）：可选调尺寸手柄。
+   仅在 createPanel({ resizable: true }) 时生成；默认不开，因此既有面板的视觉零变化。
+   手柄只负责把「用户想多大」翻译成内联 px，钳制与持久化仍走 persist.applyClamping()。 */
+.nvui-panel.is-resizable {
+    position: relative;
+}
+
+.nvui-resize {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--nvui-radius-sm);
+    cursor: nwse-resize;
+    /* 触屏拖拽不要被浏览器当成滚动 */
+    touch-action: none;
+    opacity: 0.42;
+    background-image: repeating-linear-gradient(
+        135deg,
+        var(--nvui-text-3) 0 1.5px,
+        transparent 1.5px 4px
+    );
+    background-clip: content-box;
+    padding: 4px;
+    box-sizing: border-box;
+}
+
+.nvui-resize:hover,
+.nvui-resize.is-dragging {
+    opacity: 0.85;
+}
+
+/* 键盘用户必须看得见焦点：统一走焦点环令牌，不自己写像素 */
+.nvui-resize:focus-visible {
+    opacity: 1;
+    outline: var(--nvui-focus-ring-w) solid var(--nvui-focus-ring-color);
+    outline-offset: var(--nvui-focus-ring-offset);
+}
+
+/* 减少动效偏好下尺寸变化不做过渡（本组件本就没有 transition，
+   留这条是为了将来加过渡时不会悄悄违背 prefers-reduced-motion） */
+@media (prefers-reduced-motion: reduce) {
+    .nvui-resize {
+        transition: none;
+    }
+}
+
+/* 浅色主题的面板态：玻璃更接近白色霜面，避免透明面板在亮背景上失去可读性 */
+.nvui-theme-light .nvui-overlay.is-panel {
+    background: color-mix(in srgb, var(--nvui-bg) 22%, transparent);
+}
+
+.nvui-theme-light .nvui-panel {
+    background:
+        linear-gradient(160deg, var(--nvui-block-bg), transparent 42%),
+        color-mix(in srgb, var(--nvui-bg) 62%, transparent);
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.05);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.05);
+}
+
+/* v2.7.2 载体作用域玻璃覆盖：真实 ST 中多个扩展可能各自内嵌不同版本的 kit CSS，
+ * 旧版 `.nvui-panel`（0,1,0）会按扩展加载顺序覆盖新版基础规则。这里用
+ * `dialog.nvui-tl` 作用域（0,2,1）提高 specificity，保证新版玻璃在真实宿主里生效。 */
+dialog.nvui-tl .nvui-overlay.is-panel {
+    background: color-mix(in srgb, var(--nvui-bg) 20%, transparent);
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 2)) saturate(160%);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 2)) saturate(160%);
+}
+
+dialog.nvui-tl .nvui-panel {
+    background:
+        linear-gradient(160deg, var(--nvui-block-bg), transparent 42%),
+        color-mix(in srgb, var(--nvui-bg) 30%, transparent);
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.12);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.12);
+}
+
+.nvui-theme-light dialog.nvui-tl .nvui-panel {
+    background:
+        linear-gradient(160deg, var(--nvui-block-bg), transparent 42%),
+        color-mix(in srgb, var(--nvui-bg) 62%, transparent);
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.05);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.05);
+}
+
+/* v2.8.0 面板级 force：显式 opt-in 才覆盖宿主 Fast UI 的
+ * `body.no-blur * { backdrop-filter: unset !important }`。
+ * 4 条 !important（panel/overlay 各 background + backdrop-filter），不使用 -webkit- 前缀；
+ * JS 在 preferences-reduced-transparency / forced-colors / 不支持浏览器时不会写这个属性。 */
+dialog.nvui-tl[data-nvui-glass="force"] .nvui-overlay.is-panel {
+    background: color-mix(in srgb, var(--nvui-bg) 20%, transparent) !important;
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 2)) saturate(160%);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 2)) saturate(160%) !important;
+}
+
+dialog.nvui-tl[data-nvui-glass="force"] .nvui-panel {
+    background:
+        linear-gradient(160deg, var(--nvui-block-bg), transparent 42%),
+        color-mix(in srgb, var(--nvui-bg) 30%, transparent) !important;
+    -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.12);
+    backdrop-filter: blur(calc(var(--nvui-glass-blur) * 2.4)) saturate(190%) brightness(1.12) !important;
 }
 
 .nvui-panel-header {
@@ -1848,6 +2326,81 @@ dialog.nvui-tl > .nvui-toast-stack {
     flex-shrink: 0;
 }
 
+/* ==========================================================================
+ * v2.5.0 面板头部标准化：主题切换按钮与更新提示胶囊
+ * ========================================================================== */
+
+/* 1. 主题切换按钮（.nvui-theme-toggle）
+ * 继承 .nvui-icon-btn 扁平无边框风格，内置日/月图标平滑过渡动效 */
+.nvui-theme-toggle i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform var(--nvui-duration-base) var(--nvui-ease-standard),
+        opacity var(--nvui-duration-base) var(--nvui-ease-standard),
+        color var(--nvui-duration-fast) var(--nvui-ease-standard);
+}
+
+.nvui-theme-toggle:hover i {
+    transform: rotate(20deg) scale(1.08);
+    color: var(--nvui-text);
+}
+
+.nvui-theme-toggle:active i {
+    transform: rotate(45deg) scale(0.92);
+}
+
+/* 2. 版本更新提示胶囊（.nvui-update-pill）
+ * Flat Glass 扁平优先原则：仅使用淡底 + 文字，严禁 1px 实体外描边。
+ * 具备完整 WAI-ARIA 交互态与统一焦点环 */
+.nvui-update-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--nvui-space-1);
+    flex-shrink: 0;
+    padding: 2px var(--nvui-space-2);
+    border: none;
+    outline: none;
+    border-radius: var(--nvui-radius-pill);
+    background: var(--nvui-accent-bg);
+    color: var(--nvui-accent-2);
+    font-size: var(--nvui-fs-xs);
+    font-weight: var(--nvui-fw-medium);
+    line-height: var(--nvui-lh-tight);
+    vertical-align: middle;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background-color var(--nvui-transition),
+        color var(--nvui-transition),
+        transform var(--nvui-duration-fast) var(--nvui-ease-standard);
+}
+
+.nvui-update-pill:hover {
+    background: var(--nvui-accent-bg-hover);
+    color: var(--nvui-text);
+}
+
+.nvui-update-pill:active {
+    transform: scale(0.95);
+}
+
+.nvui-update-pill:focus-visible {
+    outline: var(--nvui-focus-ring-w) solid var(--nvui-focus-ring-color);
+    outline-offset: var(--nvui-focus-ring-offset);
+}
+
+.nvui-update-pill:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* 3. 面板标题栏内部徽标与胶囊防挤压守卫 */
+.nvui-panel-title > .nvui-badge,
+.nvui-panel-title > .nvui-update-pill {
+    flex-shrink: 0;
+}
+
 .nvui-panel-body {
     flex: 1 1 auto;
     min-height: 0;
@@ -1867,11 +2420,31 @@ dialog.nvui-tl > .nvui-toast-stack {
     display: none;
 }
 
+/* v2.9.0（GH-#21 第 3 条）：内容溢出时上下边缘渐隐，提示「还有内容」。
+   面板 body 自 v2.1.1 起隐藏滚动条，没有渐隐时纯视觉用户看不出可滚动。
+   data-nvui-fade 由 nvui-api.js 的 createScrollFade() 按滚动位置维护：
+   top = 上方还有内容，bottom = 下方还有内容，both = 两侧都有。
+   渐隐尺寸直接用 --nvui-space-4（16px），不新增 token；下游写
+   `.nvui-panel-body[data-nvui-fade] { mask-image: none; }` 即可关掉。 */
+.nvui-panel-body[data-nvui-fade="top"] {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, var(--nvui-text) var(--nvui-space-4));
+    mask-image: linear-gradient(to bottom, transparent 0, var(--nvui-text) var(--nvui-space-4));
+}
+
+.nvui-panel-body[data-nvui-fade="bottom"] {
+    -webkit-mask-image: linear-gradient(to top, transparent 0, var(--nvui-text) var(--nvui-space-4));
+    mask-image: linear-gradient(to top, transparent 0, var(--nvui-text) var(--nvui-space-4));
+}
+
+.nvui-panel-body[data-nvui-fade="both"] {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, var(--nvui-text) var(--nvui-space-4),
+        var(--nvui-text) calc(100% - var(--nvui-space-4)), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, var(--nvui-text) var(--nvui-space-4),
+        var(--nvui-text) calc(100% - var(--nvui-space-4)), transparent 100%);
+}
+
+/* v3.0.0：flex / 对齐 / gap 由按钮组统一规则提供（见 §按钮组），这里只剩容器语义 */
 .nvui-panel-footer {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--nvui-space-2);
     flex-shrink: 0;
     padding: var(--nvui-space-3) var(--nvui-space-4);
     border-top: 1px solid var(--nvui-glass-line);
@@ -1945,6 +2518,15 @@ dialog.nvui-tl > .nvui-toast-stack {
         max-height: 92dvh;
         border-bottom: none;
         border-radius: var(--nvui-radius-xl) var(--nvui-radius-xl) 0 0;
+        /* v2.7.2：手机端仍保持「透明 + 面板背后模糊」的玻璃态，模糊半径降档控 GPU */
+        -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 1.6)) saturate(180%) brightness(1.08);
+        backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 1.6)) saturate(180%) brightness(1.08);
+    }
+
+    /* 载体作用域：压过旧版扩展内嵌的 .nvui-panel 规则 */
+    dialog.nvui-tl .nvui-panel {
+        -webkit-backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 1.6)) saturate(180%) brightness(1.08);
+        backdrop-filter: blur(calc(var(--nvui-glass-blur-sm) * 1.6)) saturate(180%) brightness(1.08);
     }
 
     .nvui-sheet-handle {
@@ -1997,6 +2579,11 @@ dialog.nvui-tl > .nvui-toast-stack {
         gap: 2px;
         flex: 1 1 0;
         min-width: 0;
+        /* 触控尺寸下限（2026-11-16，GH-#21）：26px 满足 WCAG 2.5.8 AA 的 24px，
+           但低于 iOS 44pt / Material 48dp 的拇指建议。折中取 40px，
+           抽屉整体仅 +14px，不挤压内容区。改动需同步 test-ui-kit.js §5 与
+           test/host/smoke-panel.js 的实机断言。 */
+        min-height: 40px;
         padding: var(--nvui-space-15) 0;
         border: none;
         border-radius: var(--nvui-radius-sm);
@@ -2076,7 +2663,19 @@ dialog.nvui-tl > .nvui-toast-stack {
     }
 }
 
-/* 尊重系统「减少动态效果」偏好：停掉所有动画/过渡，并清掉 stagger 延迟 */
+/* 尊重系统「减少动态效果」偏好：停掉所有动画/过渡，并清掉 stagger 延迟
+ *
+ * 作用域策略（v2.2.0 修订补丁修复 ISSUES.md #13）：
+ *   层 1「作用域通配」：.nvui-scope 内的一切 + dialog.nvui-tl 载体的一切。
+ *       这层覆盖 kit 作用域内的自定义子元素（stagger 子项、用户自绘的微动效）。
+ *   层 2「精确点名」：所有**自身带动画/过渡**的 kit 类，逐个点名。
+ *       解决的问题：宿主把 kit 组件挂进自己的容器却**没加** .nvui-scope 时，
+ *       原来只有层 1 生效 → 组件动画不会降级（无障碍红线被绕过）。
+ *       点名而非通配，是为了**不波及宿主元素**（宿主 DOM 树庞大，通配会误伤）。
+ *
+ * 两层共用同一组 !important 声明（本块 5 个）；§7.1 宿主表单隔离 7 个。
+ * 全文件合计 14 个（原有 7 + 宿主表单隔离 7）。
+ */
 @media (prefers-reduced-motion: reduce) {
     .nvui-scope *,
     .nvui-scope *::before,
@@ -2084,7 +2683,104 @@ dialog.nvui-tl > .nvui-toast-stack {
     dialog.nvui-tl,
     dialog.nvui-tl *,
     dialog.nvui-tl *::before,
-    dialog.nvui-tl *::after {
+    dialog.nvui-tl *::after,
+    :is(
+        .nvui-overlay,
+        .nvui-modal,
+        .nvui-icon-btn,
+        .nvui-btn,
+        .nvui-switch-row,
+        .nvui-checkbox,
+        .nvui-input,
+        .nvui-tabs-indicator,
+        .nvui-tab,
+        .nvui-tabpane,
+        .nvui-acc,
+        .nvui-acc-head,
+        .nvui-acc-chev,
+        .nvui-acc-body,
+        .nvui-status-dot,
+        .nvui-spinner,
+        .nvui-skeleton,
+        .nvui-progress,
+        .nvui-progress-bar,
+        .nvui-tooltip,
+        .nvui-toast,
+        .nvui-fade-in,
+        .nvui-slide-up,
+        .nvui-pop-in,
+        .nvui-stagger,
+        .nvui-pulse,
+        .nvui-bottom-nav-item,
+        .nvui-theme-toggle,
+        .nvui-update-pill
+    ),
+    :is(
+        .nvui-overlay,
+        .nvui-modal,
+        .nvui-icon-btn,
+        .nvui-btn,
+        .nvui-switch-row,
+        .nvui-checkbox,
+        .nvui-input,
+        .nvui-tabs-indicator,
+        .nvui-tab,
+        .nvui-tabpane,
+        .nvui-acc,
+        .nvui-acc-head,
+        .nvui-acc-chev,
+        .nvui-acc-body,
+        .nvui-status-dot,
+        .nvui-spinner,
+        .nvui-skeleton,
+        .nvui-progress,
+        .nvui-progress-bar,
+        .nvui-tooltip,
+        .nvui-toast,
+        .nvui-fade-in,
+        .nvui-slide-up,
+        .nvui-pop-in,
+        .nvui-stagger,
+        .nvui-pulse,
+        .nvui-bottom-nav-item,
+        .nvui-theme-toggle,
+        .nvui-update-pill
+    )::before,
+    :is(
+        .nvui-overlay,
+        .nvui-modal,
+        .nvui-icon-btn,
+        .nvui-btn,
+        .nvui-switch-row,
+        .nvui-checkbox,
+        .nvui-input,
+        .nvui-tabs-indicator,
+        .nvui-tab,
+        .nvui-tabpane,
+        .nvui-acc,
+        .nvui-acc-head,
+        .nvui-acc-chev,
+        .nvui-acc-body,
+        .nvui-status-dot,
+        .nvui-spinner,
+        .nvui-skeleton,
+        .nvui-progress,
+        .nvui-progress-bar,
+        .nvui-tooltip,
+        .nvui-toast,
+        .nvui-fade-in,
+        .nvui-slide-up,
+        .nvui-pop-in,
+        .nvui-stagger,
+        .nvui-pulse,
+        .nvui-bottom-nav-item,
+        .nvui-theme-toggle,
+        .nvui-update-pill
+    )::after,
+    .nvui-stagger > *,
+    .nvui-theme-toggle i,
+    .nvui-switch-row input[type="checkbox"],
+    .nvui-switch-row input[type="checkbox"]::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         animation-delay: 0.01ms !important;
@@ -2103,6 +2799,18 @@ dialog.nvui-tl > .nvui-toast-stack {
  * 确保无 backdrop-filter / 减少透明度 / 强制颜色时面板与 modal 一样回退。
  * ========================================================================== */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .nvui-overlay.is-panel {
+        background: var(--nvui-overlay-bg);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
+    dialog.nvui-tl .nvui-overlay.is-panel {
+        background: var(--nvui-overlay-bg);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
     .nvui-overlay.is-panel > .nvui-panel {
         -webkit-backdrop-filter: none;
         backdrop-filter: none;
@@ -2111,6 +2819,18 @@ dialog.nvui-tl > .nvui-toast-stack {
 }
 
 @media (prefers-reduced-transparency: reduce) {
+    .nvui-overlay.is-panel {
+        background: var(--nvui-overlay-bg);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
+    dialog.nvui-tl .nvui-overlay.is-panel {
+        background: var(--nvui-overlay-bg);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
     .nvui-overlay.is-panel > .nvui-panel {
         -webkit-backdrop-filter: none;
         backdrop-filter: none;
@@ -2119,10 +2839,79 @@ dialog.nvui-tl > .nvui-toast-stack {
 }
 
 @media (forced-colors: active) {
+    .nvui-overlay.is-panel {
+        background: var(--nvui-overlay-bg);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
+    dialog.nvui-tl .nvui-overlay.is-panel {
+        background: var(--nvui-overlay-bg);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
     .nvui-overlay.is-panel > .nvui-panel {
         border: 1px solid CanvasText;
         -webkit-backdrop-filter: none;
         backdrop-filter: none;
         box-shadow: none;
     }
+
+    .nvui-btn:not([hidden]),
+    .nvui-icon-btn {
+        border: 1px solid ButtonText;
+    }
+
+    .nvui-tab.is-active {
+        border-bottom: 3px solid Highlight;
+    }
 }
+
+/* v2.7.2：自动回退 / 用户主动实心必须压过面板态玻璃（更高 specificity 晚绑定） */
+.nvui-glass-fallback .nvui-overlay.is-panel {
+    background: var(--nvui-overlay-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.nvui-solid .nvui-overlay.is-panel {
+    background: var(--nvui-overlay-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+/* v2.7.2：载体作用域下，自动回退 / 用户实心同样要压过新版玻璃 */
+.nvui-glass-fallback dialog.nvui-tl .nvui-overlay.is-panel,
+.nvui-solid dialog.nvui-tl .nvui-overlay.is-panel {
+    background: var(--nvui-overlay-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.nvui-glass-fallback dialog.nvui-tl .nvui-panel {
+    background: color-mix(in srgb, var(--nvui-bg-2) 97%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.nvui-solid dialog.nvui-tl .nvui-panel {
+    background: var(--nvui-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+/* 面板级 solid 把类加在 dialog 自身（.nvui-solid .nvui-panel 仍是祖先匹配，需更高 specificity 压过载体玻璃） */
+dialog.nvui-tl.nvui-solid .nvui-overlay.is-panel {
+    background: var(--nvui-overlay-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+dialog.nvui-tl.nvui-solid .nvui-panel {
+    background: var(--nvui-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+

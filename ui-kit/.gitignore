@@ -7,3 +7,20 @@ node_modules/
 Thumbs.db
 .vscode/
 .idea/
+
+# 实机测试产物（截图 / 探针输出），不入库
+st-lab-out/
+test/out/
+.workbuddy/
+
+# v2.8.0 发布打包产物与模板同步时间戳
+dist/
+st-extension-template/ui-kit/.sync-manifest.json
+
+.agents/
+
+# 发布计划仅本地保管，不入库
+RELEASE_PLAN_*.md
+
+# Graphify 知识图谱产物（本地生成，不入库）
+graphify-out/

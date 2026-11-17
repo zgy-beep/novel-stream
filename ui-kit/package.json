@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-nvui-kit",
-  "version": "2.3.0",
+  "version": "3.1.1",
   "description": "SillyTavern 插件通用 UI Kit「Flat Glass 扁平玻璃」：设计令牌、组件样式、动效体系与能力降级（零依赖，可整目录复制到任意插件或仓库复用）",
   "main": "nvui-api.js",
   "license": "MIT",
@@ -16,6 +16,38 @@
     "flat-design"
   ],
   "scripts": {
-    "test": "node test/test-ui-kit.js"
+    "test": "node test/test-ui-kit.js",
+    "test:api": "node test/test-api-surface.js",
+    "test:v280": "node test/test-v280-features.js",
+    "test:compat": "node test/test-compat-matrix.js",
+    "test:browser": "node test/test-issues-9-10-forms.js && node test/test-issue-11-accordion.js && node test/issue-12-optgroup-dark-theme.spec.js && node test/issue-13-14-focus-escape.spec.js && node test/issue-16-persist-size.js && node test/issue-21-ux.spec.js && node test/v290-layout-state.spec.js && node test/v290-width-only.spec.js && node test/v290-diagnostics.spec.js && node test/v290-theme-auto.spec.js && node test/v290-resize.spec.js && node test/v290-inputrow.spec.js && node test/v300-size-vars.spec.js && node test/v310-audit.spec.js",
+    "test:issue16": "node test/issue-16-persist-size.js",
+    "test:glass": "node test/st-glass-transparency.js",
+    "test:e2e": "node test/test-e2e-v250.js",
+    "test:stress": "node test/stress-m1-persistence.js && node test/stress-m2-header.js",
+    "test:host": "node test/host/smoke-panel.js && node test/host/smoke-deep.js",
+    "test:host:panel": "node test/host/smoke-panel.js",
+    "test:host:deep": "node test/host/smoke-deep.js",
+    "sync:template": "node scripts/sync-template.js",
+    "verify:release": "node scripts/verify-release.js",
+    "pack": "node scripts/pack.js",
+    "downstream:check": "node test/downstream-check.js",
+    "verify:all": "node scripts/verify-all.js",
+    "test:issue21": "node test/issue-21-ux.spec.js",
+    "test:layout": "node test/v290-layout-state.spec.js",
+    "test:widthonly": "node test/v290-width-only.spec.js",
+    "test:diagnostics": "node test/v290-diagnostics.spec.js",
+    "test:theme": "node test/v290-theme-auto.spec.js",
+    "test:resize": "node test/v290-resize.spec.js",
+    "test:inputrow": "node test/v290-inputrow.spec.js",
+    "test:sizevars": "node test/v300-size-vars.spec.js",
+    "tokens:migrate": "node scripts/tokens-v1-to-v2.js",
+    "tokens:check": "node scripts/tokens-v1-to-v2.js --check"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.0"
   }
 }

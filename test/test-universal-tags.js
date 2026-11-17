@@ -113,6 +113,33 @@ const cases = [
         name: '测试15: 分隔变体思维链照常剔除（如 <my_cot_2>，防止精确名单收得过窄）',
         input: '<my_cot_2>内部推理过程</my_cot_2>正文保留。',
         expected: '　　正文保留。'
+    },
+    {
+        name: '黑名单仅匹配完整标签名，保留同前缀的正文',
+        input: '前文。<statusStory>保留这一段</statusStory><status>状态信息</status>后文。',
+        expected: '　　前文。保留这一段后文。'
+    },
+    {
+        name: '自闭合的黑名单和思考标签保留后续正文',
+        input: '前文。<think/><status />后文。',
+        expected: '　　前文。后文。'
+    },
+    {
+        name: '不同白名单标签的正文按原文顺序拼接',
+        input: '<scene>第一段。</scene><story>第二段。</story><scene>第三段。</scene>',
+        settings: { include_tags: 'story, scene' },
+        expected: '　　第一段。\n\n　　第二段。\n\n　　第三段。'
+    },
+    {
+        name: '白名单标签与同前缀正文标签严格区分',
+        input: '<storyNote>旁注</storyNote><story>正文</story>',
+        settings: { include_tags: 'story' },
+        expected: '　　正文'
+    },
+    {
+        name: 'BBI 图片标记和提示词从 TXT 去除，保留前后的正文',
+        input: '她停下脚步。<bbi_image>1girl, rain > night\r\n远处有灯光。',
+        expected: '　　她停下脚步。\n\n　　远处有灯光。'
     }
 ];
 

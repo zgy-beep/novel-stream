@@ -98,7 +98,7 @@ computeChapters(settings, chatLog) → [{ index, no, speaker, text }]
 ### 5.3 连载总开关语义（显示语义，非持久闸门）
 
 - `enabled = true`（默认）：状态行显示「当前书稿《书名》 第 N 章」；魔法棒副标「连载中」。
-- `enabled = false`：状态行显示「连载已关闭：AI 回复不会入书，仍可随时导出整本」；魔法棒副标「已关闭」。
+- `enabled = false`：状态行显示「连载状态已关闭，仍可导出当前会话。」；魔法棒副标「已关闭」。
 - **导出不受 enabled 影响**（与 v1.x `exportNovelText` 行为一致：随时可导出整本）。
 
 ### 5.4 事件接线（全部无状态——每个处理器只做 UI 刷新）
@@ -118,7 +118,7 @@ computeChapters(settings, chatLog) → [{ index, no, speaker, text }]
 
 - `NVUI.createPanel({ id: 'novel_stream_panel', title: '小说连载阅读', tabs: [serial/filter/file], actions: [导出图标钮], footer: [关闭 ghost, 导出整本 TXT primary], mount: document.body, onClose: persistAccOpen })`；面板根加 `nvui-scope`；每次打开 `panel.setTab('serial')`。
 - 自定义节点（`panel.addNode`，只用 `nvui-` 类 + `var(--nvui-*)` 令牌，自有类 `novel-` 前缀）：分段控件（章节格式 4 选 1 / 命名 2 选 1，radiogroup + roving tabindex + 方向键）、全宽标签字段（白/黑名单）、分区 heading、状态行。DOM 骨架与 CSS 见 design.md §3。
-- 业务必须补：焦点陷阱（Tab 循环）、tabs 方向键、`resize` 后 `panel.syncIndicator()`、打开后 400ms 遮罩点击守卫。
+- NVUI Kit v3.1.1 处理面板焦点循环和桌面标签方向键。扩展补充移动端底部导航方向键、`resize` 后的 `panel.syncIndicator()` 和打开后 400ms 的遮罩点击守卫。
 - 魔法棒菜单项：design.md §9 骨架；不 `stopPropagation`；宿主重绘后按 id 幂等补回 + 短轮询兜底（沿用 v1.x `injectWandEntry` 策略）。
 
 ## 6. 设置 Schema（锁定——8 键，`extension_settings.autoSaveTxt`）

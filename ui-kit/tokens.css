@@ -1,7 +1,7 @@
 /**
  * SillyTavern 插件通用 UI Kit · 设计令牌（Design Tokens）
  * ------------------------------------------------------------------
- * 版本：ui-kit v2.3.0（语义化版本；破坏性改名/删 token 升大版本）
+ * 版本：ui-kit v3.1.1（语义化版本；破坏性改名/删 token 升大版本）
  * 许可：MIT（见同目录 LICENSE 文件）
  *
  * 本目录是**独立项目**：自带 package.json / LICENSE / CHANGELOG / test/，
@@ -67,6 +67,8 @@
     --nvui-bg: #161a24;
     --nvui-bg-2: #1c2130;
     --nvui-bg-3: #232939;
+    /* v2.8.0：纯 CSS 下游可读的 kit 版本（与 package.json / nvui-api.js 一致） */
+    --nvui-kit-version: 3.1.1;
 
     /* 半透明白色叠加层：用于「可点区块」的底与悬停/展开态，不写死具体颜色 */
     --nvui-block-bg: rgba(255, 255, 255, 0.05);
@@ -232,7 +234,7 @@
     --nvui-modal-width: 680px;
     --nvui-modal-max-h: 80vh;
     /* v2.1.0：SillyTavern 插件面板布局标准（桌面居中面板 / 手机底部抽屉） */
-    --nvui-panel-width: 880px;   /* 桌面面板最大宽度（内容区建议 640~880px） */
+    --nvui-panel-width: 720px;   /* 桌面面板最大宽度（黄金尺寸 720px，内容区建议 640~720px） */
     --nvui-panel-max-h: 88vh;    /* 桌面面板最大高度（手机端自动切 92dvh 底部抽屉） */
 
     /* ==================== 层级 ====================

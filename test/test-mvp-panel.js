@@ -91,7 +91,7 @@ const FNS = [
     'isAuxiliaryTag', 'scanChatTags', 'toggleTagMembership',
     'faIcon', 'createPanelHeading', 'createStatusLineRow', 'createSegmented', 'createTagField',
     'createTagDetector',
-    'bindPanelFocusTrap', 'bindPanelArrowKeys', 'guardOverlayClick', 'buildNovelPanel',
+    'bindBottomNavArrowKeys', 'guardOverlayClick', 'buildNovelPanel',
     'formatExportTime', 'updateExportStatusLine', 'exportNovelText', 'applyNovelUIRefresh',
     'injectWandEntry', 'syncWandEntryState'
 ].map(extractFn).join('\n\n');
@@ -138,7 +138,7 @@ function __chatLog() {
 // 模块级状态（与 index.js 同名同形）
 let novelPanel = null;
 let uiRefs = {};
-let lastExport = { fileName: '', chapterCount: 0, time: null };
+let lastExport = { bookTitle: '', fileName: '', chapterCount: 0, time: null };
 let lastChatLogRef = null;
 function getSettings() { return __settings; }
 function saveSettingsDebounced() { __savedCount++; }
@@ -512,6 +512,78 @@ function checkTrue(name, cond) {
     else { fail++; failList.push(name); console.error(`[FAIL] ${name}`); }
 }
 
+async function checkAssetStartup(browser, offline) {
+    const page = await browser.newPage();
+    const host = 'https://novel-stream.test';
+    const extension = '/scripts/extensions/third-party/novel-stream';
+    const kit = path.join(ROOT, 'ui-kit');
+    const version = JSON.parse(fs.readFileSync(path.join(kit, 'package.json'), 'utf8')).version;
+    const cdn = `https://cdn.jsdelivr.net/gh/zgy-beep/ui-kit@v${version}/`;
+    const assets = ['components.css', 'nvui-api.js', 'tokens.css'];
+    const cdnRequests = [];
+    const localRequests = [];
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+    await page.route('**/*', (route) => {
+        const url = route.request().url();
+        const pathname = new URL(url).pathname;
+        const asset = path.posix.basename(pathname);
+        if (assets.includes(asset)) {
+            if (url.startsWith(cdn)) {
+                cdnRequests.push(asset);
+                if (offline) return route.abort();
+            } else if (url === `${host}${extension}/ui-kit/${asset}`) {
+                localRequests.push(asset);
+            } else {
+                return route.abort();
+            }
+            return route.fulfill({
+                contentType: asset.endsWith('.css') ? 'text/css' : 'application/javascript',
+                path: path.join(kit, asset)
+            });
+        }
+        if (url === host + '/') {
+            return route.fulfill({
+                contentType: 'text/html',
+                body: `<!doctype html><button id="extensionsMenuButton">魔法棒</button><div id="extensionsMenu" onclick="this.hidden = true"></div>
+<script>globalThis.NVUI = { version: '2.3.0' }</script>
+<script type="module" src="${extension}/index.js"></script>`
+            });
+        }
+        const modules = {
+            [`${extension}/index.js`]: src,
+            '/scripts/extensions.js': 'export const extension_settings = {}; export const getContext = () => ({});',
+            '/script.js': 'export const eventSource = null, event_types = null, saveSettingsDebounced = () => {}, chat = [], characters = [], this_chid = null;'
+        };
+        if (modules[pathname]) {
+            return route.fulfill({ contentType: 'application/javascript', body: modules[pathname] });
+        }
+        return route.abort();
+    });
+    try {
+        await page.goto(host + '/');
+        await page.locator('#novel-wand-menu-item').click({ timeout: 5000 });
+        await page.locator('.nvui-panel').waitFor({ state: 'visible', timeout: 5000 });
+        const label = offline ? '离线回退' : 'CDN 加载';
+        check(`${label}：尝试同版 CDN 的 JS 和 CSS`, cdnRequests.sort().join(','), assets.join(','));
+        check(`${label}：本地资源请求`, localRequests.sort().join(','), offline ? assets.join(',') : '');
+        check(`${label}：载入版本替换旧版全局 API`, await page.evaluate(() => globalThis.NVUI.version), version);
+        check(`${label}：CSS 令牌与 JS 同版`, await page.locator('.nvui-panel').evaluate((el) =>
+            getComputedStyle(el).getPropertyValue('--nvui-kit-version').trim()), version);
+
+        // 其他扩展可在启动后重写全局 API，面板导出应继续使用自己的 Kit 实例。
+        await page.evaluate(() => { globalThis.NVUI = { version: '2.3.0' }; });
+        await page.locator('.nvui-panel-footer .is-primary').click();
+        await page.locator('.nvui-toast').waitFor({ state: 'visible', timeout: 5000 });
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => document.activeElement.id === 'extensionsMenuButton', undefined, { timeout: 5000 });
+        check(`${label}：菜单项隐藏时焦点归还魔法棒按钮`, await page.evaluate(() => document.activeElement.id), 'extensionsMenuButton');
+        check(`${label}：模块启动和导出反馈无运行报错`, errors.join(' | '), '');
+    } finally {
+        await page.close();
+    }
+}
+
 (async function () {
     const browser = await playwright.chromium.launch({ executablePath, headless: true });
     try {
@@ -550,8 +622,9 @@ function checkTrue(name, cond) {
         checkTrue('dialog.open=true', opened.open === true);
         checkTrue('非模态（:modal 不匹配）', opened.modal === false);
         checkTrue('遮罩显示', opened.hidden === false);
-        checkTrue('打开后焦点移入面板（Kit 默认聚焦底部主按钮）', await dpage.evaluate(() => window.__api.activeInsidePanel()));
-        checkTrue('打开后落在导出主按钮上', /is-primary/.test(await dpage.evaluate(() => window.__api.activeDesc())));
+        checkTrue('打开后焦点移入面板', await dpage.evaluate(() => window.__api.activeInsidePanel()));
+        checkTrue('打开后焦点落在激活分区内', await dpage.evaluate(() =>
+            !!document.activeElement.closest('.nvui-tabpane.is-active')));
 
         console.log('\n=== ③ 内容排布（design.md §1.4）===');
         const heads = await dpage.evaluate(() => window.__api.headings());
@@ -641,6 +714,7 @@ function checkTrue(name, cond) {
         await dpage.evaluate(() => window.__api.pressArrowOnTab('filter', 'ArrowRight'));
         await dpage.waitForTimeout(80);
         check('tabs 方向键 ArrowRight 切到 file', await dpage.evaluate(() => window.__api.activeTab()), 'file');
+        check('方向键同步焦点到 file 标签', await dpage.evaluate(() => document.activeElement.dataset.tab), 'file');
         await dpage.evaluate(() => window.__api.clickBottomNav(0));
         await dpage.waitForTimeout(80);
         check('底部导航点击切到 serial', await dpage.evaluate(() => window.__api.activePane()), 'serial');
@@ -823,7 +897,7 @@ function checkTrue(name, cond) {
         await dpage.evaluate(() => window.__api.setEnabled(false));
         await dpage.evaluate(() => window.__api.refresh());
         ss = await dpage.evaluate(() => window.__api.serialStatus());
-        check('关闭连载：文案切换', ss.text, '连载已关闭：AI 回复不会入书，仍可随时导出整本');
+        check('关闭连载：文案切换', ss.text, '连载状态已关闭，仍可导出当前会话。');
         await dpage.evaluate(() => window.__api.setEnabled(true));
         await dpage.evaluate(() => window.__api.refresh());
 
@@ -908,6 +982,10 @@ function checkTrue(name, cond) {
         await mpage.waitForTimeout(80);
         check('底部导航点击切到过滤 pane', await mpage.evaluate(() => window.__api.activePane()), 'filter');
         check('底部导航 aria-current 同步', await mpage.evaluate(() => window.__api.bottomNavAria()), '0:-|1:page|0:-');
+        await mpage.locator('.nvui-bottom-nav-item[data-tab="filter"]').press('ArrowRight');
+        check('手机底部导航方向键切换并移动焦点', await mpage.evaluate(() =>
+            [window.__api.activePane(), document.activeElement.dataset.tab].join(',')), 'file,file');
+        await mpage.evaluate(() => window.__api.clickBottomNav(1));
 
         /* ---- v2.2.0 检测器移动端：触屏目标 + 换行 + 真实 tap ---- */
         await mpage.evaluate(() => window.__api.clickAcc('会话标签检测器'));
@@ -925,6 +1003,10 @@ function checkTrue(name, cond) {
 
         check('移动端全程无运行报错', mobileErrors.length === 0 ? 'none' : mobileErrors.join(' | '), 'none');
         await mctx.close();
+
+        console.log('\n=== ⑭ 真实模块启动：同版 CDN 与离线资源 ===');
+        await checkAssetStartup(browser, false);
+        await checkAssetStartup(browser, true);
     } finally {
         await browser.close();
         try { fs.unlinkSync(harnessPath); } catch (e) { /* 忽略 */ }

@@ -48,11 +48,9 @@ import {
     this_chid as this_chid_raw
 } from '../../../../script.js';
 /* ---------- NVUI Kit 资产加载（CDN 在线优先，本地 vendor 兜底） ---------- */
-// Kit 由上游独立维护且持续迭代（github.com/zgy-beep/ui-kit，语义化版本承诺：破坏性变更升大版本），
-// @2 锚点经 jsDelivr 自动跟随 2.x 最新，升级无需重新 vendor；CDN 不可达（离线 / 内网 / 挂起超时）
-// 时回退到随包 vendor 的 ./ui-kit/（锁定 v2.3.0），保证离线可用。
-// Kit 缺陷不修本地副本，一律提上游 issue（docs/decisions/OPEN-DECISIONS.md）。
-const NVUI_CDN_BASE = 'https://cdn.jsdelivr.net/gh/zgy-beep/ui-kit@2';
+// CDN 和离线副本使用同一发布版本，避免与其他扩展加载的 Kit 版本混用。
+const NVUI_VERSION = '3.1.1';
+const NVUI_CDN_BASE = `https://cdn.jsdelivr.net/gh/zgy-beep/ui-kit@v${NVUI_VERSION}`;
 const NVUI_LOAD_TIMEOUT = 10000; // CDN 挂起不阻塞启动：超时即回退本地 vendor
 
 function loadTagOnce(makeEl, src) {
@@ -88,13 +86,16 @@ function localKitUrl(file) {
 }
 
 async function loadNvuiScript() {
-    if (globalThis.NVUI) return;
+    if (globalThis.NVUI?.version === NVUI_VERSION) return globalThis.NVUI;
     try {
         await loadScriptOnce(`${NVUI_CDN_BASE}/nvui-api.js`);
     } catch (err) { /* 落入下方本地兜底 */ }
-    if (!globalThis.NVUI) {
+    if (globalThis.NVUI?.version !== NVUI_VERSION) {
         await loadScriptOnce(localKitUrl('nvui-api.js'));
     }
+    const kit = globalThis.NVUI;
+    if (kit?.version !== NVUI_VERSION) throw new Error(`NVUI ${NVUI_VERSION} 未加载`);
+    return kit;
 }
 
 async function loadNvuiCss(file) {
@@ -114,9 +115,8 @@ function ensureNvuiAssets() {
                 await loadNvuiCss('tokens.css');
                 await loadNvuiCss('components.css');
             })();
-            await loadNvuiScript();
-            await cssReady;
-            return !!globalThis.NVUI;
+            const [kit] = await Promise.all([loadNvuiScript(), cssReady]);
+            return kit;
         })().catch((err) => {
             console.warn('[AutoSaveTxt] NVUI Kit 加载失败（CDN 与本地 vendor 均不可达）:', err);
             return false;
@@ -414,11 +414,15 @@ function toggleTagMembership(includeStr, excludeStr, tag, action) {
 function cleanNovelText(rawText, settings = {}) {
     if (!rawText || typeof rawText !== 'string') return '';
     let text = rawText;
+    // 标签名必须完整匹配，自闭合标签不能作为包裹正文的开标签。
+    const openTagSuffix = '(?=[\\s>])(?![^>]*\\/\\s*>)[^>]*>';
 
     // 前置清洗：彻底过滤 HTML 注释 (如 <!-- Lorebook: ... -->) 与 Markdown 多媒体图片
     text = text.replace(/<!--[\s\S]*?-->/g, '');
     text = text.replace(/!\[.*?\]\(.*?\)/g, '');
-    text = text.replace(/<img[^>]*>/gi, '');
+    text = text.replace(/<img(?=[\s/>])[^>]*>/gi, '');
+    // BBI 的图像提示词紧跟在标记后，直到行末。
+    text = text.replace(/<bbi_image\s*>[^\r\n]*/gi, '');
 
     // 阶段零【通用前置无头标签与思维链智能清洗】：
     // 应对任何反代、Prefill、插件导致的“开篇无起始标签、仅有闭标签”问题（无论标签名叫什么，均可自动识别并切除）
@@ -431,7 +435,7 @@ function cleanNovelText(rawText, settings = {}) {
             const tagName = match[2].toLowerCase();
             if (!INLINE_TAGS.has(tagName)) {
                 const safeTag = match[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const openTagRegex = new RegExp(`<\\s*${safeTag}[^>]*>`, 'i');
+                const openTagRegex = new RegExp(`<\\s*${safeTag}${openTagSuffix}`, 'i');
                 if (!openTagRegex.test(beforeClosing)) {
                     // 开篇内容中不存在对应开标签，证实这是被省略了开标签的前置内容，彻底切除
                     text = text.slice(match[0].length);
@@ -446,7 +450,7 @@ function cleanNovelText(rawText, settings = {}) {
     // （think_2 / agent-cot 等分隔变体照常识别），杜绝 <planets> / <airplane> / <cotton> 子串误伤。
     // 判定与检测器共用模块级 isAuxiliaryTag（防漂移：「自动」徽标必须与引擎实际行为一致）
     const isAuxTag = isAuxiliaryTag;
-    const auxOpenRe = /<\s*([a-zA-Z][a-zA-Z0-9_\-~.:#]*)[^>]*>/gi;
+    const auxOpenRe = new RegExp(`<\\s*([a-zA-Z][a-zA-Z0-9_\\-~.:#]*)${openTagSuffix}`, 'gi');
 
     // 成对剔除：逐个找出辅助标签开标签，按真实标签名精确配对剔除
     const scannedAux = new Set();
@@ -457,7 +461,7 @@ function cleanNovelText(rawText, settings = {}) {
         if (scannedAux.has(auxKey) || !isAuxTag(auxKey)) continue;
         scannedAux.add(auxKey);
         const safeAuxName = auxName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        text = text.replace(new RegExp(`<\\s*${safeAuxName}[^>]*>[\\s\\S]*?<\\/\\s*${safeAuxName}\\s*>\\s*`, 'gi'), '');
+        text = text.replace(new RegExp(`<\\s*${safeAuxName}${openTagSuffix}[\\s\\S]*?<\\/\\s*${safeAuxName}\\s*>\\s*`, 'gi'), '');
         auxOpenRe.lastIndex = 0; // 文本已变，从头重扫（同名标签已被 scannedAux 去重，不会死循环）
     }
 
@@ -477,16 +481,16 @@ function cleanNovelText(rawText, settings = {}) {
         const extractedParts = [];
         for (const tag of includeTags) {
             const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const tagRegex = new RegExp(`<\\s*(${safeTag})[^>]*>([\\s\\S]*?)<\\/\\s*\\1\\s*>`, 'gi');
+            const tagRegex = new RegExp(`<\\s*${safeTag}${openTagSuffix}([\\s\\S]*?)<\\/\\s*${safeTag}\\s*>`, 'gi');
             let match;
             while ((match = tagRegex.exec(text)) !== null) {
-                if (match[2] && match[2].trim()) {
-                    extractedParts.push(match[2].trim());
-                }
+                const body = match[1].trim();
+                if (body) extractedParts.push({ index: match.index, body });
             }
         }
         if (extractedParts.length > 0) {
-            text = extractedParts.join('\n\n');
+            extractedParts.sort((a, b) => a.index - b.index);
+            text = extractedParts.map((part) => part.body).join('\n\n');
         }
     }
 
@@ -498,20 +502,19 @@ function cleanNovelText(rawText, settings = {}) {
     );
 
     if (excludeTags.length > 0) {
-        // 长标签在前，避免 alternation 前缀遮蔽（短标签抢先在长标签名上命中会导致配对断裂）
-        const sortedTags = excludeTags.slice().sort((a, b) => b.length - a.length);
-        const alt = sortedTags.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+        const alt = excludeTags.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 
         // 1. 成对标签块一趟剔除（合并 alternation + 反向引用，替代逐标签全文本扫描）
-        text = text.replace(new RegExp(`<\\s*(${alt})[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi'), '');
+        text = text.replace(new RegExp(`<\\s*(${alt})${openTagSuffix}[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi'), '');
 
         // 2. 一趟扫描确定各标签残留的开 / 闭标签存在性
-        const presenceRe = new RegExp(`<\\s*(\\/)?\\s*(${alt})[^>]*>`, 'gi');
+        const presenceRe = new RegExp(`<\\s*(\\/)?\\s*(${alt})(?=[\\s/>])[^>]*>`, 'gi');
         const hasOpen = new Set();
         const hasClose = new Set();
         let presenceMatch;
         while ((presenceMatch = presenceRe.exec(text)) !== null) {
-            (presenceMatch[1] ? hasClose : hasOpen).add(presenceMatch[2].toLowerCase());
+            if (presenceMatch[1]) hasClose.add(presenceMatch[2].toLowerCase());
+            else if (!/\/\s*>$/.test(presenceMatch[0])) hasOpen.add(presenceMatch[2].toLowerCase());
         }
 
         // 3. 仅对确有残留形态的标签定点清除：无开有闭 → 切除开篇孤立闭块；有开无闭 → 切除末尾未闭合块
@@ -522,7 +525,7 @@ function cleanNovelText(rawText, settings = {}) {
                 text = text.replace(new RegExp(`^[\\s\\S]*?<\\/\\s*${safeTag}\\s*>\\s*`, 'i'), '');
             }
             if (hasOpen.has(key) && !hasClose.has(key)) {
-                text = text.replace(new RegExp(`<\\s*${safeTag}[^>]*>[\\s\\S]*$`, 'i'), '');
+                text = text.replace(new RegExp(`<\\s*${safeTag}${openTagSuffix}[\\s\\S]*$`, 'i'), '');
             }
         }
     }
@@ -667,6 +670,7 @@ function buildNovelText(settings, chatLog) {
 function composeNovelExport(settings, chatLog) {
     const { bookTitle, novelText, chapterCount } = buildNovelText(settings, chatLog);
     return {
+        bookTitle,
         fileName: getBookFileName(settings),
         text: '\uFEFF' + novelText,
         chapterCount
@@ -679,7 +683,7 @@ let novelPanel = null;                 // NVUI 面板控制器
 let uiRefs = {};                       // 状态行 / 导出状态行 / 导出折叠组等 DOM 引用
 let refreshTimer = 0;                  // refreshNovelUI 防抖句柄
 let lastChatLogRef = null;             // 聊天记录数组引用（切换即整表失效清洗缓存）
-let lastExport = { fileName: '', chapterCount: 0, time: null }; // 最近一次导出（会话内记忆，不落设置）
+let lastExport = { bookTitle: '', fileName: '', chapterCount: 0, time: null }; // 最近一次导出（会话内记忆，不落设置）
 
 /** Font Awesome 6 图标节点（纯装饰，语义由文字承担） */
 function faIcon(iconClass) {
@@ -895,50 +899,19 @@ function createTagDetector(options) {
     return root;
 }
 
-/** 焦点陷阱：Tab / Shift+Tab 在面板可见控件间循环（aria-modal 的必要配套，design.md §7.2） */
-function bindPanelFocusTrap(panelEl) {
-    panelEl.addEventListener('keydown', (e) => {
-        if (e.key !== 'Tab') return;
-        const focusables = Array.prototype.slice.call(panelEl.querySelectorAll(
-            'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-        )).filter((el) => el.offsetParent !== null);
-        if (focusables.length === 0) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        const active = document.activeElement;
-        if (!panelEl.contains(active)) {
-            e.preventDefault();
-            (e.shiftKey ? last : first).focus();
-            return;
-        }
-        if (e.shiftKey && (active === first || active === panelEl)) {
-            e.preventDefault();
-            last.focus();
-        } else if (!e.shiftKey && active === last) {
-            e.preventDefault();
-            first.focus();
-        }
+/** Kit 负责桌面标签导航，窄屏底部导航也支持左右方向键。 */
+function bindBottomNavArrowKeys(panel) {
+    panel.bottomNav?.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        const items = Array.from(panel.bottomNav.querySelectorAll('.nvui-bottom-nav-item'));
+        const idx = items.indexOf(document.activeElement);
+        if (idx < 0) return;
+        e.preventDefault();
+        const dir = e.key === 'ArrowRight' ? 1 : -1;
+        const next = items[(idx + dir + items.length) % items.length];
+        panel.setTab(next.dataset.tab);
+        next.focus();
     });
-}
-
-/** tabs / 底部导航方向键切换（API 只绑 click，业务补，design.md §7.3） */
-function bindPanelArrowKeys(panel, tabKeys) {
-    const bind = (nav) => {
-        if (!nav) return;
-        nav.addEventListener('keydown', (e) => {
-            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-            const items = Array.prototype.slice.call(nav.querySelectorAll('.nvui-tab, .nvui-bottom-nav-item'));
-            const idx = items.indexOf(document.activeElement);
-            if (idx < 0) return;
-            e.preventDefault();
-            const dir = e.key === 'ArrowRight' ? 1 : -1;
-            const next = items[(idx + dir + items.length) % items.length];
-            next.focus();
-            panel.setTab(tabKeys[items.indexOf(next)]);
-        });
-    };
-    bind(panel.tabs);
-    bind(panel.bottomNav);
 }
 
 /**
@@ -964,7 +937,7 @@ function guardOverlayClick(overlay) {
  *
  * deps = { settings, defaultExcludeTags, save, refreshStatus, onExport }
  */
-function buildNovelPanel(deps) {
+function buildNovelPanel(deps, kit = globalThis.NVUI) {
     const settings = deps.settings;
 
     const CHAPTER_STYLE_ITEMS = [
@@ -992,7 +965,7 @@ function buildNovelPanel(deps) {
     };
     const accRegistry = new Map();
 
-    const panel = NVUI.createPanel({
+    const panel = kit.createPanel({
         id: 'novel_stream_panel',
         title: '小说连载阅读',
         tabs: [
@@ -1006,6 +979,7 @@ function buildNovelPanel(deps) {
             { label: '导出整本 TXT', variant: 'primary', onClick: deps.onExport }
         ],
         mount: document.body,
+        focusFallback: '#extensionsMenuButton',
         onClose: () => { persistAccOpen(); deps.refreshStatus(); }
     });
     panel.dialog.classList.add('nvui-scope');
@@ -1045,7 +1019,7 @@ function buildNovelPanel(deps) {
     panel.addNode('serial', serialStatus);
 
     panel.addSwitch('serial', {
-        label: '开启小说自动连载',
+        label: '显示连载状态',
         value: settings.enabled !== false,
         feature: true,
         onChange: (v) => {
@@ -1068,7 +1042,7 @@ function buildNovelPanel(deps) {
             deps.refreshStatus();
         }
     });
-    const indentSwitch = NVUI.switchRow({
+    const indentSwitch = kit.switchRow({
         label: '段落首行缩进（空两格）',
         value: settings.indent_paragraphs !== false,
         onChange: (v) => {
@@ -1087,7 +1061,7 @@ function buildNovelPanel(deps) {
     });
 
     let userAcc = null;
-    const userSwitch = NVUI.switchRow({
+    const userSwitch = kit.switchRow({
         label: '将主角（你的发言）融入小说',
         value: settings.include_user_dialogue === true,
         onChange: (v) => {
@@ -1162,7 +1136,7 @@ function buildNovelPanel(deps) {
         label: '正文白名单',
         value: settings.include_tags || '',
         placeholder: '留空 = 保留全部正文',
-        hint: '填入如 story 后，仅提取 <story>...</story> 内部内容，其余全部丢弃；不确定预设是否有正文标签时，请留空。',
+        hint: '填入 story 等标签名。命中时提取标签内正文，未命中时保留原文供后续清洗。',
         onChange: (v) => {
             settings.include_tags = v;
             deps.save();
@@ -1266,16 +1240,14 @@ function buildNovelPanel(deps) {
     trackAccordion(namingAcc, 'naming');
     trackAccordion(exportAcc, 'export');
 
-    /* ---------- 业务补齐：焦点陷阱 / 方向键 / 打开行为 ---------- */
-    bindPanelFocusTrap(panel.panel);
-    bindPanelArrowKeys(panel, ['serial', 'filter', 'file']);
+    bindBottomNavArrowKeys(panel);
 
     const rawOpen = panel.open;
     panel.open = function () {
-        rawOpen();
         panel.setTab('serial');
         applyAccOpen();
         deps.refreshStatus();
+        rawOpen();
         guardOverlayClick(panel.overlay);
     };
 
@@ -1310,7 +1282,7 @@ function applyNovelUIRefresh() {
     const chapters = computeChapters(settings, chatLog);
     if (uiRefs.serialStatus) {
         if (settings.enabled === false) {
-            uiRefs.serialStatus.setText('连载已关闭：AI 回复不会入书，仍可随时导出整本');
+            uiRefs.serialStatus.setText('连载状态已关闭，仍可导出当前会话。');
             uiRefs.serialStatus.setMeta('');
         } else if (chapters.length > 0) {
             uiRefs.serialStatus.setText(`当前书稿《${getBookTitle(settings)}》`);
@@ -1348,7 +1320,7 @@ function updateExportStatusLine() {
         return;
     }
     const timeText = formatExportTime(lastExport.time);
-    uiRefs.exportStatus.setText(`已导出《${getBookTitle(getSettings())}》`);
+    uiRefs.exportStatus.setText(`已导出《${lastExport.bookTitle}》`);
     uiRefs.exportStatus.setMeta(timeText);
     uiRefs.exportStatus.setFile(`${lastExport.fileName} · 共 ${lastExport.chapterCount} 章`);
     uiRefs.exportStatus.setSuccess(true);
@@ -1356,18 +1328,18 @@ function updateExportStatusLine() {
 }
 
 /** 一键导出整本 TXT（纯前端 Blob 下载 + UTF-8 BOM + 一次性 toast + 状态行刷新） */
-function exportNovelText() {
+function exportNovelText(kit = globalThis.NVUI) {
     const settings = getSettings();
     let composed;
     try {
         composed = composeNovelExport(settings, getCurrentChatLog());
     } catch (err) {
         console.warn('[AutoSaveTxt] 导出编排失败:', err);
-        NVUI.showToast({ message: '导出失败：整本编排时发生错误，请查看浏览器控制台。', type: 'danger', duration: 3200 });
+        kit.showToast({ message: '导出失败：整本编排时发生错误，请查看浏览器控制台。', type: 'danger', duration: 3200 });
         return;
     }
     if (!composed.chapterCount) {
-        NVUI.showToast({ message: '当前没有可导出的有效章节：请先开始对话，或检查白 / 黑名单是否过滤过严。', type: 'warn', duration: 3200 });
+        kit.showToast({ message: '当前没有可导出的有效章节：请先开始对话，或检查白 / 黑名单是否过滤过严。', type: 'warn', duration: 3200 });
         return;
     }
     try {
@@ -1383,14 +1355,15 @@ function exportNovelText() {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
         console.warn('[AutoSaveTxt] 导出下载失败:', err);
-        NVUI.showToast({ message: '导出失败：浏览器未能生成下载文件，请重试。', type: 'danger', duration: 3200 });
+        kit.showToast({ message: '导出失败：浏览器未能生成下载文件，请重试。', type: 'danger', duration: 3200 });
         return;
     }
+    lastExport.bookTitle = composed.bookTitle;
     lastExport.fileName = composed.fileName;
     lastExport.chapterCount = composed.chapterCount;
     lastExport.time = new Date();
     updateExportStatusLine();
-    NVUI.showToast({ message: `已导出《${getBookTitle(settings)}》共 ${composed.chapterCount} 章（${composed.fileName}）`, type: 'success', duration: 3200 });
+    kit.showToast({ message: `已导出《${composed.bookTitle}》共 ${composed.chapterCount} 章（${composed.fileName}）`, type: 'success', duration: 3200 });
 }
 
 /* ---------- 魔法棒菜单入口（design.md §9，宿主 DOM） ---------- */
@@ -1454,15 +1427,16 @@ function bindNovelEvents() {
 
 async function init() {
     // 等 Kit 资产就绪再建面板；CDN 与本地 vendor 双双失败时面板降级不可用，其余入口照常
-    if (await nvuiAssetsReady) {
+    const kit = await nvuiAssetsReady;
+    if (kit) {
         const built = buildNovelPanel({
             settings: getSettings(),
             defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
             scanTags: () => scanChatTags(getCurrentChatLog()),
             save: () => { if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced(); },
             refreshStatus: applyNovelUIRefresh,
-            onExport: exportNovelText
-        });
+            onExport: () => exportNovelText(kit)
+        }, kit);
         novelPanel = built.panel;
         uiRefs = built.refs;
     }

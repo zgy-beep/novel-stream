@@ -3,9 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SillyTavern UI Kit v2.3.0 · Flat Glass 组件预览</title>
+<title>SillyTavern UI Kit v3.1.1 · Flat Glass 组件预览</title>
 <!--
-  SillyTavern 插件通用 UI Kit v2.3.0「Flat Glass」组件预览页
+  SillyTavern 插件通用 UI Kit v3.1.1「Flat Glass」组件预览页
+  ------------------------------------------------------------------
+  v2.5.0 新增（2026-10-21）：
+  ① 表现层布局状态持久化（R1 · Issue #5）：createPanel 支持 persist: true，自动记忆
+  尺寸/位置/tab/折叠，内置 250ms 防抖与多屏幕视口越界安全钳制（Viewport Clamping）；
+  ② 面板头部标准化（R2 · Issue #6）：右上角预置主题切换按钮（themeToggle: true，
+  平滑图标过渡，直连 NVUI.setTheme），标题区预置版本更新胶囊与 panel.showUpdate 动态点亮接口；
+  ③ 电脑端面板宽度优化为 720px 黄金尺寸（--nvui-panel-width: 720px），支持 opts.width。
   ------------------------------------------------------------------
   v2.0.1 修订（2026-10-17，用户反馈迭代）：玻璃更通透（弹窗级 0.64 / popover 级 0.80，
   受光边 0.06 / 内高光 0.04，blur 20px / 12px，saturate 150%）；新增 nvui-tabpane-in 与
@@ -19,13 +26,13 @@
   临时恢复完整动效（生产代码必须继续尊重系统偏好，不要照抄 preview 的覆盖）。
   ------------------------------------------------------------------
   v2.1.0 新增（2026-10-17 23:12）：SillyTavern 插件面板布局标准（桌面居中面板 / 手机底部抽屉），
-  新增 10 个组件类（组件类 68→78）与 2 个尺寸令牌（--nvui-panel-width 880px / --nvui-panel-max-h 88vh，
+  新增 10 个组件类（组件类 68→78）与 2 个尺寸令牌（--nvui-panel-width 720px / --nvui-panel-max-h 88vh，
   令牌 107→109）；第 18 节含可打开的真实面板 demo，支持 ?panel=1 载入即开。只参考参考图的排列结构，
   皮肤一律使用本 Kit 的 Flat Glass（紫色强调），不复刻他插件皮肤。
   ------------------------------------------------------------------
   v2.1.1 修订（2026-10-17 23:26，用户反馈）：全部描边再减弱减细（分隔线 line 0.05 / line-2 0.08 /
   dash 0.14、块边 0.04、玻璃受光边 0.03、内高光 0.03）；输入框聚焦改为「单圈 1.5px 焦点环」
-  （焦点环宽度 token 2px→1.5px，不再叠加内圈描边）；面板改为固定尺寸（桌面 880×88vh / 手机 92dvh），
+  （焦点环宽度 token 2px→1.5px，不再叠加内圈描边）；面板改为固定尺寸（桌面 720×88vh / 手机 92dvh），
   折叠展开与切换 tab 都不改变外框；.nvui-panel-body 与 .nvui-modal-body 隐藏滚动条但保留滚动能力。
   ------------------------------------------------------------------
   v2.2.0 迭代（2026-10-17 23:40，用户反馈「描边锯齿 + 需要设计调用 API」）：
@@ -35,7 +42,7 @@
   空态去掉虚线圆角边、标签指示器去掉 1px 内环改底部直线强调；焦点环回到单圈 2px（整数像素更清晰）。
   ② 新增设计调用文件（均为零依赖、离线相对路径）：nvui-api.js（可选运行时：createPanel / showToast /
   switchRow / inputRow / accordion / progress / openLayer / closeLayer / getToken / setTheme）、
-  tokens.json（tokens.css 的机器可读镜像，109 深色 + 47 浅色覆盖）、AI-GUIDE.md（给 AI 的硬约束、
+  tokens.json（tokens.css 的机器可读镜像，110 深色 + 47 浅色覆盖）、AI-GUIDE.md（给 AI 的硬约束、
   文件阅读顺序、ST 插件面板标准流程、其它软件迁移规范、提示词模板、API 速查与验收清单）。
   第 19 节演示用 ./nvui-api.js 真实创建面板/吐司，支持 ?api=1 载入即开。
   ------------------------------------------------------------------
@@ -45,6 +52,12 @@
   盖住——本页无宿主层级竞争所以看不出来。修复：新增令牌 --nvui-z-layer: 1000000（载体档），
   dialog.nvui-tl 增加 z-index: var(--nvui-z-layer)；子浮层仍在载体内按 floating/overlay/
   tooltip 排位。测试新增「宿主 z-30 遮挡物 + elementFromPoint 命中」回归断言。
+  ------------------------------------------------------------------
+  v2.4.0 完善（2026-10-20）：宿主 dialog.showModal() 模态会给整页加 inert（inert 不参与
+  命中测试），kit 浮层压不过它（popover=manual 亦然，实测证伪）——故改为「主动让位」：
+  载体加 .is-host-modal（pointer-events:none + opacity:0.35 + grayscale(0.6)），宿主模态
+  关闭后自动还原。新增 API：countHostModals / syncHostModalState / getCarrierState。
+  令牌数不变（110 深色 + 47 浅色）。
   ------------------------------------------------------------------
   单文件离线：只依赖同目录的 ./tokens.css 与 ./components.css，以及可选的 ./nvui-api.js；
   无外链脚本 / 外链样式 / 字体 / CDN / 图片，无 emoji，可整目录复制后直接双击打开。
@@ -72,6 +85,11 @@
     /* ==========================================================================
      * 预览页骨架样式（仅本文件使用，pv- 前缀，不进入 kit）
      * ========================================================================== */
+    :root {
+        /* v2.8.0：消费版本令牌，纯 CSS 也能验证 tokens.css 已加载正确版本 */
+        --pv-kit-version: var(--nvui-kit-version);
+    }
+
     html {
         -webkit-text-size-adjust: 100%;
     }
@@ -263,6 +281,17 @@
 
     .pv-row-wrap {
         flex-wrap: wrap;
+    }
+
+    /* 独立复选框 demo 的行内标签：只负责可点区域，不改 kit 组件外观 */
+    .pv-check-row {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .pv-check-row > span {
+        color: var(--nvui-text-2);
+        font-size: var(--nvui-fs-md);
     }
 
     .pv-text-label {
@@ -1103,7 +1132,7 @@
         <div class="pv-hero-main">
             <h1>
                 <span>SillyTavern UI Kit</span>
-                <span class="nvui-badge is-accent">v2.3.0</span>
+                <span class="nvui-badge is-accent">v3.1.1</span>
                 <span class="nvui-badge">Flat Glass</span>
             </h1>
             <p class="nvui-hint pv-hero-sub">
@@ -1113,7 +1142,7 @@
             </p>
             <div class="pv-hero-meta">
                 <span class="nvui-badge">110 个设计令牌</span>
-                <span class="nvui-badge">78 个组件类</span>
+                <span class="nvui-badge">80 个组件类</span>
                 <span class="nvui-badge">16 个关键帧</span>
                 <span class="nvui-badge is-accent">AA 安全玻璃</span>
             </div>
@@ -1640,18 +1669,19 @@
         </section>
 
         <!-- ========================================================
-             06 胶囊开关
+             06 胶囊开关与独立复选框
              ======================================================== -->
         <section class="pv-section" aria-labelledby="pv-sec-06-title">
             <div class="pv-section-head">
                 <span class="pv-sec-num">06</span>
                 <div class="pv-section-heading">
-                    <h2 class="nvui-section-title" id="pv-sec-06-title">胶囊开关</h2>
+                    <h2 class="nvui-section-title" id="pv-sec-06-title">胶囊开关与独立复选框</h2>
                     <p class="nvui-hint">
                         整行 label 可点；勾选态轨道变主色、滑钮右移；含酒馆宿主 checkbox 样式隔离
                         （appearance 与宿主 ::before 对勾都被压掉）。
                         v2.0.1 新增：勾选时轨道播放 nvui-switch-on 回弹（scale 0.92→1.04→1），
                         按住滑钮沿运动方向 scaleX(1.12) 拉伸，松手由弹簧缓动回位。
+                        批量选择场景使用独立的 16px <code class="nvui-code">.nvui-checkbox</code>（见下方示例）。
                     </p>
                 </div>
             </div>
@@ -1673,6 +1703,55 @@
                     <p class="nvui-hint">
                         弹簧回弹：滑钮位移与拉伸都使用 --nvui-ease-spring / --nvui-duration-base；
                         :active 时整行缩放 0.96；开关关闭态轨道使用 --nvui-switch-off-bg，滑钮使用 --nvui-knob-off。
+                    </p>
+                </div>
+
+                <div class="nvui-divider"></div>
+                <h3 class="nvui-section-title">独立复选框 .nvui-checkbox</h3>
+                <p class="nvui-hint">
+                    16px 小方块，保留原生 input 语义：Tab 聚焦、Space 切换、:checked / :indeterminate / :disabled 都由浏览器维护。
+                    宿主给 input[type=checkbox] 的 display:grid、宽高、底色、描边与 ::before 对勾由
+                    <code class="nvui-code">.nvui-checkbox</code> 自身隔离，不依赖外层载体，也不影响宿主其它 checkbox。
+                </p>
+                <div class="pv-demo nvui-stack" role="group" aria-label="独立复选框状态示例">
+                    <div class="nvui-row pv-row-wrap">
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox" id="pv-check-all">
+                            <span>全选（父级）</span>
+                        </label>
+                        <span class="nvui-hint">子项部分选中时，父级自动进入 indeterminate 横杠态。</span>
+                    </div>
+                    <div class="nvui-row pv-row-wrap">
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox pv-check-child" checked>
+                            <span>条目 A</span>
+                        </label>
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox pv-check-child" checked>
+                            <span>条目 B</span>
+                        </label>
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox pv-check-child">
+                            <span>条目 C</span>
+                        </label>
+                    </div>
+                    <div class="nvui-row pv-row-wrap">
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox" checked disabled>
+                            <span>选中禁用</span>
+                        </label>
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox" disabled>
+                            <span>未选中禁用</span>
+                        </label>
+                        <label class="nvui-row pv-check-row">
+                            <input type="checkbox" class="nvui-checkbox" id="pv-check-indeterminate">
+                            <span>部分选中（独立）</span>
+                        </label>
+                    </div>
+                    <p class="nvui-hint">
+                        选中态：--nvui-accent 底 + --nvui-on-accent 对勾；未选中：--nvui-input-bg 底 + --nvui-line-2 描边；
+                        部分选中：主色底 + 横杠；焦点环走 --nvui-focus-ring-*。禁用态只降透明度，不改变选中语义。
                     </p>
                 </div>
             </div>
@@ -1711,6 +1790,16 @@
                         <input class="nvui-input" type="text" placeholder="输入章节标题关键字过滤">
                         <span>章节过滤</span>
                     </label>
+                    <label class="nvui-input-row is-msg">
+                        <textarea class="nvui-input is-textarea" rows="3" data-nvui-type="textarea" placeholder="多行文本（v2.9.0 · inputRow({ type: 'textarea' })）"></textarea>
+                        <span>备注说明</span>
+                        <span class="nvui-input-msg is-hint" id="pv-msg-hint">最多 500 字，支持换行</span>
+                    </label>
+                    <label class="nvui-input-row is-msg is-error">
+                        <input class="nvui-input" type="text" value="not-a-url" aria-invalid="true" aria-describedby="pv-msg-error">
+                        <span>回调地址</span>
+                        <span class="nvui-input-msg is-error" id="pv-msg-error">必须是 http(s) 开头的完整地址</span>
+                    </label>
                     <div class="nvui-row pv-row-wrap pv-mt-2">
                         <button type="button" class="nvui-btn is-sm is-ghost" id="pv-focus-demo">聚焦示例</button>
                         <span class="nvui-hint">
@@ -1724,6 +1813,36 @@
                         不再叠加 inset 内圈描边。
                         v2.0.1：数字输入框隐藏浏览器原生步进按钮（暗色下不再出现白色小箭头），
                         键盘 ↑/↓ 与滚轮仍可调值，需要可见步进器请自建 .nvui-icon-btn。
+                    </p>
+                </div>
+                <div class="pv-demo pv-mt-2">
+                    <h3 class="nvui-section-title">自定义容器表单：显式 opt-in .nvui-form-scope（v2.7.0）</h3>
+                    <p class="nvui-hint">
+                        只有给自定义普通容器显式加 .nvui-form-scope，容器内既有 .nvui-input 的
+                        input / select / textarea / option 才共享 7 条宿主表单隔离；
+                        不加类的容器行为不变，作用域内非 kit 控件不接管，也不会创建定位 / 遮罩 / 模态。
+                    </p>
+                    <div class="nvui-form-scope nvui-stack"
+                         style="padding: var(--nvui-space-4); background: var(--nvui-block-bg); border-radius: var(--nvui-radius);">
+                        <label class="nvui-stack" style="gap: var(--nvui-space-1);">
+                            <span class="nvui-hint">input · .nvui-input</span>
+                            <input class="nvui-input" type="text" value="自定义容器内的输入框" style="width: 100%;">
+                        </label>
+                        <label class="nvui-stack" style="gap: var(--nvui-space-1);">
+                            <span class="nvui-hint">select · .nvui-input</span>
+                            <select class="nvui-input" style="width: 100%;">
+                                <option>选项 A（option 共享隔离）</option>
+                                <option>选项 B</option>
+                            </select>
+                        </label>
+                        <label class="nvui-stack" style="gap: var(--nvui-space-1);">
+                            <span class="nvui-hint">textarea · .nvui-input</span>
+                            <textarea class="nvui-input" rows="2" style="width: 100%;">多行文本同样复用既有 .nvui-input 与 token。</textarea>
+                        </label>
+                    </div>
+                    <p class="nvui-hint pv-mt-2">
+                        边界：该标记只作表单隔离根，不替代 .nvui-scope；默认的双载体与 token 取值、运行时 API 均不变，
+                        !important 预算仍为 14。
                     </p>
                 </div>
             </div>
@@ -2002,11 +2121,23 @@
                             <div class="nvui-progress is-ok" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" aria-label="完成"><span class="nvui-progress-bar" style="width: 100%"></span></div>
                             <div class="nvui-progress is-warn" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" aria-label="接近上限"><span class="nvui-progress-bar" style="width: 42%"></span></div>
                             <div class="nvui-progress is-danger" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="78" aria-label="失败重试"><span class="nvui-progress-bar" style="width: 78%"></span></div>
+                            <div class="pv-progress-meta"><span class="nvui-muted-2">带可视标签（.nvui-progress-field）</span></div>
+                            <div class="nvui-progress-field">
+                                <span data-nvui-part="label" aria-hidden="true">导出进度</span>
+                                <span data-nvui-part="value" aria-hidden="true">62%</span>
+                                <div class="nvui-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" aria-label="导出进度">
+                                    <span class="nvui-progress-bar" style="width: 62%"></span>
+                                </div>
+                            </div>
                             <div class="nvui-btn-row">
                                 <button type="button" class="nvui-btn is-sm" id="pv-progress-less">减少 8%</button>
                                 <button type="button" class="nvui-btn is-sm" id="pv-progress-more">增加 8%</button>
                                 <button type="button" class="nvui-btn is-sm is-ghost" id="pv-progress-reset">重置</button>
                                 <button type="button" class="nvui-btn is-sm is-secondary" id="pv-progress-ind-toggle">切回确定进度</button>
+                            </div>
+                            <div class="nvui-actions">
+                                <button type="button" class="nvui-btn is-sm">取消</button>
+                                <button type="button" class="nvui-btn is-sm is-primary">保存</button>
                             </div>
                         </div>
                     </div>
@@ -2294,7 +2425,7 @@
                         <li>分区导航：电脑用顶部 <code class="nvui-code">.nvui-tabs</code>（5 个 role=tab，共享 <code class="nvui-code">.nvui-tabs-indicator</code> 粘连指示器）；手机隐藏顶部 tabs，改用底部 <code class="nvui-code">.nvui-bottom-nav</code> 图标导航。</li>
                         <li>可滚动内容 <code class="nvui-code">.nvui-panel-body</code>：<code class="nvui-code">.nvui-panel-heading</code>（分区标题 + 版本 <code class="nvui-code">.nvui-badge</code>）→ <code class="nvui-code">.nvui-switch-row.is-feature</code> 高亮功能行 → 6 个 <code class="nvui-code">.nvui-acc</code> 折叠分组（基本设置 / 副 API / 自动生成 tag / 排除角色 / 排除世界书内容 / 自定义提示词）。</li>
                         <li>可选底部操作区 <code class="nvui-code">.nvui-panel-footer</code>（取消 / 保存）；手机端底部导航自动叠加 <code class="nvui-code">env(safe-area-inset-bottom)</code>。</li>
-                        <li>固定尺寸防跳变（v2.1.1）：面板桌面宽 <code class="nvui-code">min(880px, 100%)</code>、高 <code class="nvui-code">88vh</code>；手机全宽、高 <code class="nvui-code">92dvh</code> —— 折叠/展开、切换 tab 都不会改变外框。<code class="nvui-code">.nvui-panel-body</code> 是唯一滚动层，滚动条已隐藏（仍可滚动，内容超高时内部滚动）。</li>
+                        <li>固定尺寸防跳变（v2.1.1 / v2.5.0）：面板桌面宽 <code class="nvui-code">min(720px, 100%)</code>、高 <code class="nvui-code">88vh</code>；手机全宽、高 <code class="nvui-code">92dvh</code> —— 折叠/展开、切换 tab 都不会改变外框。<code class="nvui-code">.nvui-panel-body</code> 是唯一滚动层，滚动条已隐藏（仍可滚动，内容超高时内部滚动）。</li>
                         <li>无障碍：panel 用 role="dialog" aria-modal="true" aria-labelledby；顶部 tabs 用 tablist/tab/tabpanel；底部导航用 nav + button，激活项 <code class="nvui-code">aria-current="page"</code>，两套导航共用同一份 JS 同步 active 状态与 tabpane。</li>
                     </ol>
                 </div>
@@ -2302,7 +2433,7 @@
                     <h3 class="pv-sub-title">结构示意（桌面 1440 / 手机 390，同一 DOM）</h3>
                     <div class="pv-layout-grid">
                         <div class="pv-layout-card">
-                            <h4 class="pv-layout-card-title">电脑 &gt;600px：居中面板（880px 宽，最大 88vh）</h4>
+                            <h4 class="pv-layout-card-title">电脑 &gt;600px：居中面板（720px 宽，最大 88vh）</h4>
                             <div class="pv-wire">
                                 <div class="pv-wire-row is-header">
                                     <span>标题栏</span><b>SillyTavern 插件面板</b>
@@ -2362,7 +2493,7 @@
                         顶部 tabs 与手机底部导航共享 active 状态与 tabpane（aria-selected / aria-current 同步）；
                         关闭支持 Esc / 点遮罩 / × 按钮，焦点回到触发按钮；
                         内容区由 .nvui-panel-body 独立滚动，页面本身不锁滚动。
-                        v2.1.1：面板固定尺寸（桌面宽 min(880px,100%) × 高 88vh；手机全宽 × 高 92dvh），
+                        v2.1.1 / v2.5.0：面板固定尺寸（桌面宽 min(720px,100%) × 高 88vh；手机全宽 × 高 92dvh），
                         折叠/展开、切换 tab 都不会改变外框；panel-body 隐藏滚动条但保留滚动能力。
                     </p>
                 </div>
@@ -2420,33 +2551,35 @@
                     </div>
                 </div>
                 <div class="pv-demo">
-                    <h3 class="pv-sub-title">真实 API 演示（由 ./nvui-api.js 生成）</h3>
+                    <h3 class="pv-sub-title">真实 API 演示（由 ./nvui-api.js 生成 · v2.5.0）</h3>
                     <div class="nvui-btn-row">
                         <button type="button" class="nvui-btn is-primary" id="pv-api-open-panel">用 API 打开面板</button>
+                        <button type="button" class="nvui-btn is-secondary" id="pv-api-show-update">动态点亮更新徽标</button>
+                        <button type="button" class="nvui-btn is-secondary" id="pv-api-clear-update">清除更新徽标</button>
                         <button type="button" class="nvui-btn is-secondary" id="pv-api-toast">API 吐司</button>
+                        <button type="button" class="nvui-btn is-ghost" id="pv-api-clear-state">重置布局记忆</button>
                     </div>
                     <p class="nvui-hint pv-api-status" id="pv-api-status" role="status">
-                        「用 API 打开面板」调用 NVUI.createPanel 生成「基本 / 关于」两个 tab，并插入 feature 开关、
-                        折叠分组与输入行；「API 吐司」调用 NVUI.showToast。也可用
-                        <code class="nvui-code">?api=1</code> 载入即打开 API 面板（供截图/审核）。
+                        点击「用 API 打开面板」体验 v2.5.0 布局持久化（记忆尺寸与 Tab）、右上角主题切换按钮与 720px 黄金宽度；
+                        点击「动态点亮更新徽标」测试 panel.showUpdate() 动态插入与 A11y；
+                        点击「重置布局记忆」测试 NVUI.clearLayoutState()。
                     </p>
-                    <pre class="pv-code-block">// 最小用法（浏览器，需先 &lt;script src="./nvui-api.js"&gt;&lt;/script&gt;）
+                    <pre class="pv-code-block">// v2.5.0 极简调用（具备持久化、主题切换与动态更新）
 var panel = NVUI.createPanel({
     id: 'pv-api-panel',
     title: 'API 生成的面板',
-    version: 'v2.2.0',
+    version: 'v2.5.0',
+    persist: true,         // 一键开启尺寸、Tab 与折叠记忆
+    themeToggle: true,     // 预置头部日/月平滑主题切换按钮
+    resizable: true,       // 右下角 .nvui-resize 手柄：可拖拽，也可方向键 / Shift / Home
     tabs: [{ key: 'basic', label: '基本' }, { key: 'about', label: '关于' }],
     footer: [{ label: '关闭', variant: 'ghost', close: true }]
 });
 panel.addSwitch('basic', { label: 'API 生成的开关', value: true, feature: true });
-panel.addAccordion('basic', {
-    title: 'API 生成的折叠',
-    summary: '摘要：由 NVUI.createPanel 生成',
-    open: true,
-    content: [panel.addInput('basic', { label: 'API 生成的输入行', type: 'number', value: 80 })]
-});
 panel.open();
-NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</pre>
+
+// 异步动态点亮更新胶囊
+panel.showUpdate({ version: 'v2.5.0', label: '新版本 v2.5.0 可用', url: 'https://github.com/zgy-beep/ui-kit/releases' });</pre>
                 </div>
                 <div class="pv-demo">
                     <h3 class="pv-sub-title">给 AI / 其它软件的使用方式</h3>
@@ -2670,8 +2803,8 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
     </main>
 
     <footer class="pv-footer">
-        <div>SillyTavern UI Kit v2.2.0 · Flat Glass · 单文件离线预览（无外链 / 无 CDN / 无 emoji）</div>
-        <div>文件：tokens.css + components.css · 规范：README.md · 令牌：110 个 · 组件类：78 个 · 关键帧：16 个</div>
+        <div>SillyTavern UI Kit v3.1.1 · Flat Glass · 单文件离线预览（无外链 / 无 CDN / 无 emoji）</div>
+        <div>文件：tokens.css + components.css · 规范：README.md · 令牌：110 个 · 组件类：80 个 · 关键帧：16 个</div>
     </footer>
 </div>
 
@@ -3013,6 +3146,9 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
 
     /* ============================================================
      * 1. 动效重播：移除工具类 → 强制回流 → 重新添加，重启 CSS 动画
+     *    性能修复（ISSUES.md #14）：旧实现对**每个**节点各读一次 offsetWidth，
+     *    N 个节点 = N 次同步强制回流；stagger 场景下子项动画还没被真正重启。
+     *    现在改为「批量摘类 → 全局只回流一次 → 批量挂回」。
      * ============================================================ */
     var MOTION_CLASSES = ['nvui-fade-in', 'nvui-slide-up', 'nvui-pop-in', 'nvui-pulse', 'nvui-stagger'];
 
@@ -3020,17 +3156,31 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         var nodes = document.querySelectorAll(
             '.nvui-fade-in, .nvui-slide-up, .nvui-pop-in, .nvui-pulse, .nvui-stagger'
         );
+        var pending = [];
         Array.prototype.forEach.call(nodes, function (node) {
             var applied = MOTION_CLASSES.filter(function (name) {
                 return node.classList.contains(name);
             });
+            if (applied.length === 0) return;
             applied.forEach(function (name) {
                 node.classList.remove(name);
             });
-            void node.offsetWidth; /* 强制回流，让动画从头开始 */
-            applied.forEach(function (name) {
-                node.classList.add(name);
+            pending.push({ node: node, applied: applied });
+        });
+        if (pending.length === 0) return;
+        /* 整批只回流一次：读取一个元素的布局即可让本轮所有摘类生效 */
+        void document.body.offsetWidth;
+        pending.forEach(function (item) {
+            item.applied.forEach(function (name) {
+                item.node.classList.add(name);
             });
+            /* stagger 的动画挂在直接子项上，容器回流不代表子项动画被重启，
+               需要再对子项各触发一次回流（子项数量远小于被摘类节点数）。 */
+            if (item.applied.indexOf('nvui-stagger') !== -1) {
+                Array.prototype.forEach.call(item.node.children, function (child) {
+                    void child.offsetWidth;
+                });
+            }
         });
     }
 
@@ -3202,6 +3352,27 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         });
     }
 
+    /* 独立复选框示例：父级全选 / 子项联动 + indeterminate 横杠 */
+    var checkAll = document.getElementById('pv-check-all');
+    var checkChildren = Array.prototype.slice.call(document.querySelectorAll('.pv-check-child'));
+    if (checkAll && checkChildren.length) {
+        var syncCheckAll = function () {
+            var checkedCount = checkChildren.filter(function (item) { return item.checked; }).length;
+            checkAll.checked = checkedCount === checkChildren.length;
+            checkAll.indeterminate = checkedCount > 0 && checkedCount < checkChildren.length;
+        };
+        checkChildren.forEach(function (item) {
+            item.addEventListener('change', syncCheckAll);
+        });
+        checkAll.addEventListener('change', function () {
+            checkChildren.forEach(function (item) { item.checked = checkAll.checked; });
+            checkAll.indeterminate = false;
+        });
+        syncCheckAll();
+    }
+    var standaloneIndeterminate = document.getElementById('pv-check-indeterminate');
+    if (standaloneIndeterminate) standaloneIndeterminate.indeterminate = true;
+
     /* 输入行「聚焦示例」：按钮触发，页面载入不自动聚焦（避免抢初始焦点） */
     var focusDemoBtn = document.getElementById('pv-focus-demo');
     if (focusDemoBtn) {
@@ -3233,7 +3404,13 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         var panel = NVUI.createPanel({
             id: 'pv-api-panel',
             title: 'API 生成的面板',
-            version: 'v2.2.0',
+            version: 'v2.5.0',
+            persist: true,         // v2.5.0 声明式持久化
+            themeToggle: true,     // v2.5.0 头部预置主题切换
+            resizable: true,       // v2.9.0 右下角 .nvui-resize 调尺寸手柄（键盘可用）
+            onThemeChange: function (theme) {
+                setApiStatus('面板头部主题切换触发：已切换为 ' + (theme === 'light' ? '浅色主题' : '深色主题'));
+            },
             tabs: [
                 { key: 'basic', label: '基本' },
                 { key: 'about', label: '关于' }
@@ -3255,8 +3432,8 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         var aboutText = document.createElement('p');
         aboutText.className = 'pv-on-glass';
         aboutText.textContent = '这个面板由 ./nvui-api.js 的 NVUI.createPanel() 在运行时生成：' +
-            '自动包含 dialog.nvui-tl 顶层载体、role=dialog / aria-modal、桌面顶部 tabs 与手机底部导航同步、' +
-            'Esc 与点遮罩关闭、关闭后焦点归还触发按钮。业务插件只写数据，不必再手写 DOM。';
+            'v2.5.0 全量集成持久化记忆（拖拽改变大小后关闭重开可保持）、右上角预置主题切换、' +
+            '720px 黄金尺寸与动态更新点亮能力。自动包含 dialog.nvui-tl 顶层载体与无障碍支持。';
         panel.addNode('about', aboutText);
         panel.addAccordion('about', {
             title: 'tokens.json',
@@ -3266,7 +3443,7 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
             ]
         });
         apiPanelCtl = panel;
-        setApiStatus('API 面板已创建：顶部「基本 / 关于」两个 tab，切换时底部导航与 aria 状态同步；关闭后焦点回到触发按钮。');
+        setApiStatus('API 面板已创建：已开启 persist 记忆与 themeToggle 主题切换；默认宽度 720px。');
         return apiPanelCtl;
     }
 
@@ -3275,6 +3452,47 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         apiOpenBtn.addEventListener('click', function () {
             var panel = getApiPanel();
             if (panel) panel.open();
+        });
+    }
+
+    // 绑定动态点亮更新按钮
+    var apiShowUpdateBtn = document.getElementById('pv-api-show-update');
+    if (apiShowUpdateBtn) {
+        apiShowUpdateBtn.addEventListener('click', function () {
+            var panel = getApiPanel();
+            if (!panel) return;
+            panel.showUpdate({
+                version: 'v2.5.0',
+                label: '新版本 v2.5.0 可用',
+                url: 'https://github.com/zgy-beep/ui-kit/releases/tag/v2.5.0'
+            });
+            setApiStatus('已调用 panel.showUpdate() 点亮更新徽标！点击徽标可跳转链接；键盘 Tab 键可聚焦。');
+            panel.open();
+        });
+    }
+
+    // 绑定清除更新按钮
+    var apiClearUpdateBtn = document.getElementById('pv-api-clear-update');
+    if (apiClearUpdateBtn) {
+        apiClearUpdateBtn.addEventListener('click', function () {
+            var panel = getApiPanel();
+            if (!panel) return;
+            panel.showUpdate(null);
+            setApiStatus('已调用 panel.showUpdate(null) 清除更新徽标。');
+        });
+    }
+
+    // 绑定重置布局状态按钮
+    var apiClearStateBtn = document.getElementById('pv-api-clear-state');
+    if (apiClearStateBtn) {
+        apiClearStateBtn.addEventListener('click', function () {
+            var panel = getApiPanel();
+            if (panel && typeof panel.clearLayoutState === 'function') {
+                panel.clearLayoutState();
+            } else if (typeof NVUI !== 'undefined' && typeof NVUI.clearLayoutState === 'function') {
+                NVUI.clearLayoutState('pv-api-panel');
+            }
+            setApiStatus('已调用 clearLayoutState() 清理存储，DOM 尺寸已重置回默认 720px。');
         });
     }
 
@@ -3289,9 +3507,18 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         });
     }
 
-    window.addEventListener('resize', function () {
-        if (apiPanelCtl && typeof apiPanelCtl.syncIndicator === 'function') apiPanelCtl.syncIndicator();
-    });
+    /* NEW-11：resize 事件在拖拽窗口时可每秒触发数十次，
+       直接调 syncIndicator()（内部读 offset，会触发强制布局）等于每帧都强制同步。
+       这里用 requestAnimationFrame 合并 —— 每帧至多执行一次。 */
+    var apiSyncRaf = 0;
+    function scheduleApiIndicatorSync() {
+        if (apiSyncRaf) return;
+        apiSyncRaf = window.requestAnimationFrame(function () {
+            apiSyncRaf = 0;
+            if (apiPanelCtl && typeof apiPanelCtl.syncIndicator === 'function') apiPanelCtl.syncIndicator();
+        });
+    }
+    window.addEventListener('resize', scheduleApiIndicatorSync);
 
     /* ============================================================
      * 5. 进度条演示：确定值增减 + 不确定态切换
@@ -3373,6 +3600,14 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
 
     function dismissToast(toast) {
         if (!toast || toast.dataset.closing === '1' || !toast.parentNode) return;
+        /* NEW-12：清掉自动消失的定时器。
+           原实现每条吐司各起一个 4.2s 定时器，而 dismissToast 不取消它 ——
+           手动点关闭后定时器仍挂着，到点又跑一次 dismissToast；
+           快速连发 N 条就会同时挂起 N 个定时器。 */
+        if (toast.__toastTimer) {
+            clearTimeout(toast.__toastTimer);
+            toast.__toastTimer = 0;
+        }
         toast.dataset.closing = '1';
         toast.classList.add('is-closing');
 
@@ -3443,8 +3678,9 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
         toast.appendChild(close);
         toastStack.appendChild(toast);
 
-        /* 自动消失（真实组件由业务决定停留时长；这里给 4.2s） */
-        setTimeout(function () {
+        /* 自动消失（真实组件由业务决定停留时长；这里给 4.2s）
+           定时器 id 存在 toast 上，dismissToast 会把它清掉（NEW-12） */
+        toast.__toastTimer = setTimeout(function () {
             dismissToast(toast);
         }, 4200);
     }
@@ -3658,9 +3894,18 @@ NVUI.showToast({ message: '由 NVUI API 生成的吐司', type: 'success' });</p
     });
 
     /* 滚动 / 缩放时跟随锚点重新定位，而不是直接隐藏：
-       键盘 focus 引发的滚动不会把提示闪没，提示也不会停在旧位置。 */
+       键盘 focus 引发的滚动不会把提示闪没，提示也不会停在旧位置。
+       性能修复（ISSUES.md #14）：滚动事件用 capture=true 监听全局，
+       一次滚动可能触发数十次回调；这里用 requestAnimationFrame 合并成
+       每帧至多一次重定位。 */
+    var repositionRaf = 0;
+
     function repositionTip() {
-        if (tipTarget && tipEl && !tipEl.hidden) showTip(tipTarget);
+        if (repositionRaf) return;
+        repositionRaf = window.requestAnimationFrame(function () {
+            repositionRaf = 0;
+            if (tipTarget && tipEl && !tipEl.hidden) showTip(tipTarget);
+        });
     }
 
     window.addEventListener('scroll', repositionTip, true);

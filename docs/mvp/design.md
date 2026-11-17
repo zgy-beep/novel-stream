@@ -333,13 +333,13 @@ panel.dialog.classList.add('nvui-scope');             // Kit §7.1：浮层根�
 
 ### 7.2 焦点管理（API 之上必须补的两块）
 
-1. **焦点陷阱**：`panel.panel` 绑 `keydown`，Tab / Shift+Tab 在面板内可见控件间循环（README §2.3 `trapFocus` 配方，约 10 行）。理由：`aria-modal="true"` 的必要配套；API 未内置，业务补齐。
-2. **打开焦点细化（可选）**：API 默认把焦点给底部主按钮（导出）。若总监偏好「打开不预聚焦破坏性偏低频操作」，可在 `panel.open()` 后双 rAF 将焦点移到 `.nvui-panel-title`（临时 `tabindex="-1"`）。默认按 Kit 行为，不额外定制。
+1. **焦点循环**：NVUI Kit v3.1.1 负责 Tab / Shift+Tab 循环。关闭时如果触发项已隐藏，Kit 将焦点归还到魔法棒按钮 `#extensionsMenuButton`。
+2. **打开焦点**：Kit 优先聚焦激活分区内的可操作控件。
 
 ### 7.3 tabs / 底部导航 / tabpane 同步
 
 - 状态只有一份：`panel.setTab(key)` 同步 tabs（`is-active` / `aria-selected` / `tabindex`）、底部导航（`is-active` / `aria-current="page"`）、tabpane（`is-active` 切 display）。桌面切到「导出」后缩窗到手机宽度，底部导航仍高亮「文件」。
-- 键盘：tabs 内 `ArrowLeft/ArrowRight` 切换并聚焦（README §12.7 配方；API 只绑 click，业务补约 8 行）。
+- 键盘：Kit 负责桌面标签的方向键、Home 和 End。扩展为手机底部导航提供左右方向键，切换后焦点跟随。
 - `resize` / 字体加载后调 `panel.syncIndicator()` 重算粘连指示器（API 未绑 resize，业务补）。
 - **只切 display，绝不重建 DOM**（保输入焦点与折叠状态）。
 
@@ -362,7 +362,7 @@ panel.dialog.classList.add('nvui-scope');             // Kit §7.1：浮层根�
 
 - 开启且有章节：`当前书稿《{书名}》` + 右侧 `第 {N} 章`；
 - 开启无章节：`尚未开始：发出第一句消息后，角色问候语将作为第 1 章入书`；
-- 关闭：`连载已关闭：AI 回复不会入书，仍可随时导出整本`。
+- 关闭：`连载状态已关闭，仍可导出当前会话。`。
 
 ### 7.6 无障碍清单（Panel 级）
 

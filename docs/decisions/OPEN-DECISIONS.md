@@ -9,3 +9,4 @@
 | 2026-10-20 | Phase 0 | 服务端自动落盘（plugins/auto-save）是否回归 | 用户已确认 MVP 砍掉服务端；需 config.yaml + 重启酒馆，门槛高 | v2.1 候选，看 MVP 用户反馈 | 等 MVP 上线后反馈 | 有 ≥3 个用户反馈「要自动落盘」 | OPEN |
 | 2026-10-20 | Phase 0 | 导出成功/失败反馈是否允许用 NVUI.showToast | 用户砍掉了「Toast」功能（指连载更新提示）；导出是核心操作的唯一反馈 | 允许 1 次性导出反馈 toast（非连载提示），用 kit 的 showToast | 总监裁断 | Spec 定稿 | **RESOLVED**（2026-10-20 总监裁断：允许。`type: success/danger`、`role=status`、默认 3.2s 自动消失；与「文件」页持久状态行并存，toast 不是唯一反馈通道） |
 | 2026-10-20 | 用户裁断 | ui-kit 资产引入方式改在线优先（推翻同日 vendor 决议） | Kit 由上游独立维护、持续迭代；用户可能离线/内网的约束仍在 | jsDelivr CDN `@2` 锚点在线优先（自动跟随 2.x，破坏性变更不进入），超时/失败回退本地 vendor 副本；Kit 缺陷不修本地、提上游 issue | 无 | — | **RESOLVED**（2026-10-20 用户裁断：在线优先 + vendor 兜底。落地于 index.js 顶部加载器：JS/CSS 均 CDN 优先、10s 超时回退 import.meta.url 解析的本地路径；升级不再依赖整目录覆盖，本地副本仅兜底不打补丁） |
+| 2026-11-17 | NVUI Kit 升级 | CDN 与离线资源版本一致 | 保留 CDN 优先和离线回退 | CDN 指定上游发布标签，随包资源同步自同一标签 | 无 | — | **RESOLVED**（CDN 与本地资源均采用 v3.1.1，浏览器测试覆盖两条加载路径） |

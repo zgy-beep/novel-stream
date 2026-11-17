@@ -1,0 +1,16 @@
+{
+  "display_name": "我的插件 (My Plugin)",
+  "loading_order": 20,
+  "js": "index.js",
+  "css": "style.css",
+  "author": "你的名字",
+  "version": "1.0.0",
+  "homePage": "https://github.com/你的用户名/你的仓库",
+  "description": "一句话说明这个插件做什么（会显示在扩展列表里）。",
+  "requires": [],
+  "optional": [],
+  "minimum_client_version": "1.12.0",
+  "hooks": {
+    "activate": "init"
+  }
+}

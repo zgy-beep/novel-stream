@@ -1,18 +1,18 @@
 /**
- * SillyTavern UI Kit v2.3.0「Flat Glass」· 规范守护测试（独立项目）
+ * SillyTavern UI Kit v2.8.0「Flat Glass」· 规范守护测试（独立项目）
  * 运行方式（在本目录下）: node test/test-ui-kit.js（或 npm test）
  *
  * 本文件只读取本项目内的文件，不依赖任何外部仓库/父目录，因此
  * 整个 ui-kit 目录可以被任意移动后直接运行。
  *
  * 覆盖：
- *  0) 项目文件结构、package.json 版本/元数据（2.3.0 + Flat Glass）；
+ *  0) 项目文件结构、package.json 版本/元数据（2.8.0 + Flat Glass）；
  *  1) token 完整性：CORE_TOKENS 显式登记 tokens.css 全部令牌（防漏登记/防幽灵/防僵尸），
  *     深色 110 / 浅色覆盖 47，命名合法，README 全覆盖；
  *  2) 配色规范：组件禁用硬编码颜色、颜色声明走 token、深/浅主题 WCAG AA、
  *     核心 token 金标准逐值锁定，以及 v2 新增的「玻璃 AA 合成对比度」验算
  *     （sRGB 逐通道 blend：宿主最坏情况 -> overlay-bg -> glass-bg / glass-bg-strong）；
- *  3) 组件清单：components.css / preview.html / README.md 三方覆盖（78 个类名）；
+ *  3) 组件清单：components.css / preview.html / README.md 三方覆盖（80 个类名）；
  *  4) 关键实现红线：top-layer、宿主 checkbox 隔离、玻璃（backdrop-filter + -webkit- 前缀）、
  *     能力降级（@supports / .nvui-solid / prefers-reduced-transparency / forced-colors / 窄屏）、
  *     动效体系（16 个关键帧全部被引用且只改合成友好属性）、reduced-motion（含 animation-delay）、
@@ -28,11 +28,14 @@
  *  5) 作用域红线：无裸元素选择器、类名前缀、!important 数量与白名单；
  *  6) 预览页离线可用、深浅/实心/动效/API 演示、URL 参数（?theme=light / ?solid=1 / ?panel=1 / ?api=1）；
  *  7) 文档契约：14 章节、宿主/可访问性要点、v2 设计语言、10.3-10.7 迁移、面板布局标准、JS API/AI 指南、AUDIT.md、取值防漂移；
- *  8) 版本与包信息自洽（六处一致，可独立发布/移动）。
+ *  8) 版本与包信息自洽（六处一致，可独立发布/移动）；
+ *  9) 防模板漂移：st-extension-template/ui-kit/ 下四个资产文件逐文件用 crypto 计算 md5
+ *     与根目录比对（含机器可读镜像 tokens.json），并单独守护副本 tokens.json 的版本号与 --nvui-z-layer。
  */
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const KIT = path.join(__dirname, '..'); // 本文件位于 <ui-kit>/test/
 const FILES = {
@@ -46,6 +49,7 @@ const FILES = {
     gitignore: path.join(KIT, '.gitignore'),
     audit: path.join(KIT, 'AUDIT.md'),
     api: path.join(KIT, 'nvui-api.js'),
+    tplIndex: path.join(KIT, 'st-extension-template', 'index.js'),
     tokensJson: path.join(KIT, 'tokens.json'),
     aiGuide: path.join(KIT, 'AI-GUIDE.md'),
     self: __filename,
@@ -291,6 +295,7 @@ const license = readText(FILES.license);
 const changelog = readText(FILES.changelog);
 const aiGuide = readText(FILES.aiGuide);
 const testSrc = readText(FILES.self);
+const apiSrc = readText(FILES.api);
 const auditExists = fs.existsSync(FILES.audit);
 const audit = auditExists ? readText(FILES.audit) : '';
 
@@ -356,8 +361,8 @@ for (const [name, p] of Object.entries(REQUIRED_FILES)) {
     check(`独立项目文件存在：${name}`, fs.existsSync(p) && fs.statSync(p).size > 10, p);
 }
 const KIT_VERSION = pkg.version;
-check('package.json 版本为合法 semver（2.2.0）',
-    /^2\.3\.0$/.test(String(KIT_VERSION)), String(KIT_VERSION));
+check('package.json 版本为合法 semver',
+    /^\d+\.\d+\.\d+$/.test(String(KIT_VERSION)), String(KIT_VERSION));
 check('package.json 声明 MIT 许可且与 LICENSE 文件一致',
     pkg.license === 'MIT' && /^MIT License/.test(license));
 check('package.json scripts.test 指向项目内测试（可 npm test）',
@@ -379,9 +384,9 @@ try {
 check('nvui-api.js 零依赖运行时可在 Node 直接 require（加载时不访问 DOM）',
     !!nvuiApi && !nvuiApiLoadError, nvuiApiLoadError);
 const API_FUNCTIONS = ['createPanel', 'showToast', 'switchRow', 'inputRow', 'accordion',
-    'progress', 'openLayer', 'closeLayer', 'getToken', 'setTheme'];
+    'progress', 'openLayer', 'closeLayer', 'getToken', 'setTheme', 'clearLayoutState'];
 const missingApiFunctions = API_FUNCTIONS.filter((fn) => !nvuiApi || typeof nvuiApi[fn] !== 'function');
-check('nvui-api.js 导出设计调用 API 齐全（10 个函数）且 version 与 kit 一致',
+check('nvui-api.js 导出设计调用 API 齐全（11 个函数）且 version 与 kit 一致',
     !!nvuiApi && nvuiApi.version === KIT_VERSION && missingApiFunctions.length === 0,
     missingApiFunctions.length ? `缺少: ${missingApiFunctions.join(', ')}` : `version=${nvuiApi && nvuiApi.version}`);
 
@@ -394,7 +399,7 @@ const allTokens = new Set(Object.keys(darkMap).concat(Object.keys(lightMap)).fil
 const definedTokens = new Set([...tokensClean.matchAll(/(--nvui-[\w-]+)\s*:/g)].map((m) => m[1]));
 
 /**
- * CORE_TOKENS：tokens.css v2.3.0 全部 110 个令牌的「显式固化清单」。
+ * CORE_TOKENS：tokens.css v2.8.0 全部 111 个令牌的「显式固化清单」。
  * 故意运行时从文件读取，防止令牌被静默删除/漏登记；新增令牌必须同步登记到这里。
  * 金标准（GOLDEN_*）另行锁定关键取值。
  */
@@ -424,11 +429,12 @@ const CORE_TOKENS = [
     '--nvui-switch-knob-on', '--nvui-modal-width', '--nvui-modal-max-h',
     '--nvui-panel-width', '--nvui-panel-max-h', '--nvui-z-layer',
     '--nvui-z-floating', '--nvui-z-overlay', '--nvui-z-tooltip',
+    '--nvui-kit-version',
 ];
 const CORE_SET = new Set(CORE_TOKENS);
 
-check('CORE_TOKENS 显式登记 tokens.css 全量令牌（110 个且无重复）',
-    CORE_TOKENS.length === 110 && CORE_SET.size === 110,
+check('CORE_TOKENS 显式登记 tokens.css 全量令牌（111 个且无重复）',
+    CORE_TOKENS.length === 111 && CORE_SET.size === 111,
     `清单 ${CORE_TOKENS.length} 个 / 去重 ${CORE_SET.size} 个`);
 const notRegistered = [...definedTokens].filter((t) => !CORE_SET.has(t));
 check('tokens.css 定义的每个令牌都在 CORE_TOKENS 中（防漏登记）',
@@ -467,12 +473,27 @@ for (const [label, cssMap, jsonMap] of [['dark', darkMap, tokensJson.dark], ['li
         if (!(k in cssMap)) tokensJsonDrift.push(`${label}:${k} 多余`);
     }
 }
-check('tokens.json 与 tokens.css 解析结果逐值一致（dark 110 / light 47 覆盖）',
-    !!tokensJson.dark && Object.keys(tokensJson.dark).length === 110
+check('tokens.json 与 tokens.css 解析结果逐值一致（dark 111 / light 47 覆盖）',
+    !!tokensJson.dark && Object.keys(tokensJson.dark).length === 111
     && !!tokensJson.light && Object.keys(tokensJson.light).length === 47
     && tokensJson.version === KIT_VERSION
     && tokensJsonDrift.length === 0,
     tokensJsonDrift.slice(0, 6).join(' | '));
+
+/* v3.0.0 / C3：tokens.json schema v2 = 值结构不变 + 每个 token 一条元信息。
+   值结构刻意没动（dark/light 仍是扁平映射），所以下游解析器零改动；
+   新增的 meta 让「令牌面板 / 类型校验 / AI 按语义挑 token」有东西可读。 */
+const TOKEN_TYPES = ['color', 'length', 'duration', 'easing', 'number', 'font', 'shadow', 'alias', 'keyword', 'other'];
+const metaMissing = tokensJson.schema === 2 && tokensJson.meta
+    ? Object.keys(tokensJson.dark).filter((k) => !tokensJson.meta[k]
+        || !tokensJson.meta[k].group || !tokensJson.meta[k].type
+        || TOKEN_TYPES.indexOf(tokensJson.meta[k].type) === -1)
+    : ['<缺少 schema 2 或 meta>'];
+const metaGroups = tokensJson.meta ? new Set(Object.values(tokensJson.meta).map((m) => m.group)) : new Set();
+check('tokens.json schema v2：meta 覆盖全部 token，group/type 齐全且类型在词表内',
+    tokensJson.schema === 2 && !!tokensJson.groupDescriptions
+    && metaMissing.length === 0 && metaGroups.size >= 8,
+    `缺 ${metaMissing.length} 项（${metaMissing.slice(0, 4).join(', ')}）/ ${metaGroups.size} 组`);
 
 const usedVars = new Set([...componentsClean.matchAll(/var\(\s*(--nvui-[\w-]+)/g)].map((m) => m[1]));
 /**
@@ -481,6 +502,9 @@ const usedVars = new Set([...componentsClean.matchAll(/var\(\s*(--nvui-[\w-]+)/g
  */
 const RUNTIME_VARS = new Set([
     '--nvui-tab-ind-x', '--nvui-tab-ind-y', '--nvui-tab-ind-w', '--nvui-tab-ind-h',
+    /* v3.0.0 / C1：面板尺寸载体。JS 写、CSS 读，值为 px 或 calc()；
+       它不是「有默认取值的设计令牌」（空表示交给 kit 默认值），因此不进 tokens.css。 */
+    '--nvui-panel-w', '--nvui-panel-h',
 ]);
 const undefinedVars = [...usedVars].filter((t) => !allTokens.has(t) && !RUNTIME_VARS.has(t));
 check('components.css 引用的 token 全部有定义（JS 运行时几何变量除外）', undefinedVars.length === 0,
@@ -538,8 +562,8 @@ const GOLDEN_DARK = {
     '--nvui-on-accent': '#ffffff',
     '--nvui-radius': '12px',
     '--nvui-radius-xl': '20px',
-    // v2.1.0 插件面板尺寸令牌（桌面居中面板）
-    '--nvui-panel-width': '880px',
+    // v2.5.0 插件面板尺寸令牌（桌面居中 720px 黄金尺寸）
+    '--nvui-panel-width': '720px',
     '--nvui-panel-max-h': '88vh',
     // v2.2.0 玻璃层（深色：line 改「表面内直线分隔」，highlight 用作柔和顶光）
     '--nvui-glass-bg': 'rgba(22, 26, 36, 0.64)',
@@ -749,9 +773,9 @@ check('玻璃 AA 实算值与契约 §13.2 参考值一致（±0.02）',
 // ==================== 3. 组件清单三方覆盖 ====================
 console.log('\n=== 3. 组件清单（样式/预览/文档三方覆盖） ===');
 const COMPONENT_CLASSES = [
-    'nvui-scope', 'nvui-sr-only', 'nvui-overlay', 'nvui-modal', 'nvui-modal-header',
+    'nvui-scope', 'nvui-form-scope', 'nvui-sr-only', 'nvui-overlay', 'nvui-modal', 'nvui-modal-header',
     'nvui-modal-title', 'nvui-modal-ver', 'nvui-modal-actions', 'nvui-modal-body', 'nvui-modal-footer',
-    'nvui-icon-btn', 'nvui-btn', 'nvui-btn-row', 'nvui-switch-row', 'nvui-input-row', 'nvui-input',
+    'nvui-icon-btn', 'nvui-btn', 'nvui-btn-row', 'nvui-switch-row', 'nvui-checkbox', 'nvui-input-row', 'nvui-input',
     'nvui-tabs', 'nvui-tab', 'nvui-tabpane', 'nvui-tabs-indicator', 'nvui-acc', 'nvui-acc-head', 'nvui-acc-title',
     'nvui-acc-summary', 'nvui-acc-chev', 'nvui-acc-body', 'nvui-section-title', 'nvui-hint',
     'nvui-alert', 'nvui-status-line', 'nvui-status-time', 'nvui-status-file', 'nvui-badge',
@@ -762,14 +786,17 @@ const COMPONENT_CLASSES = [
     // v2.0.0 新增 14 个类名（契约 §3.2）
     'nvui-glass', 'nvui-solid', 'nvui-acc-inner',
     'nvui-toast', 'nvui-toast-stack',
-    'nvui-progress', 'nvui-progress-bar', 'nvui-skeleton', 'nvui-status-dot',
+    'nvui-progress', 'nvui-progress-bar', 'nvui-progress-field', 'nvui-skeleton', 'nvui-status-dot',
+    'nvui-resize', 'nvui-input-msg',
     'nvui-fade-in', 'nvui-slide-up', 'nvui-pop-in', 'nvui-stagger', 'nvui-pulse',
     // v2.1.0 新增 10 个类名：SillyTavern 插件面板布局标准（契约 §14）
     'nvui-panel', 'nvui-panel-header', 'nvui-panel-title', 'nvui-panel-actions', 'nvui-panel-body',
     'nvui-panel-footer', 'nvui-panel-heading', 'nvui-sheet-handle', 'nvui-bottom-nav', 'nvui-bottom-nav-item',
+    // v2.8.0 新增 1 个类名：默认按钮组
+    'nvui-actions',
 ];
-check('COMPONENT_CLASSES 清单为 v2.2.0 的 78 个类名（53 保留 + 14 v2 新增 + 1 粘连指示器 + 10 面板布局）',
-    COMPONENT_CLASSES.length === 78 && new Set(COMPONENT_CLASSES).size === 78,
+check('COMPONENT_CLASSES 清单为 v2.9.0 的 84 个类名（v2.8.0 的 81 + progress-field + resize + input-msg）',
+    COMPONENT_CLASSES.length === 84 && new Set(COMPONENT_CLASSES).size === 84,
     `实际 ${COMPONENT_CLASSES.length} 个 / 去重 ${new Set(COMPONENT_CLASSES).size} 个`);
 const kitAllSources = [tokensClean, componentsClean, previewClean].join('\n');
 const missingInCss = COMPONENT_CLASSES.filter((c) => !containsExact(kitAllSources, '.' + c));
@@ -793,6 +820,14 @@ check('top-layer 载体子浮层恢复 pointer-events:auto',
     && /pointer-events:\s*auto/.test(componentsClean));
 check('top-layer 载体未 show() 时 display:none',
     /dialog\.nvui-tl:not\(\[open\]\)[^{]*\{\s*display:\s*none/.test(componentsClean));
+// 回归：非模态 dialog.show() 不进浏览器 top layer，载体必须自带 z-index，
+// 否则 position:fixed 的层叠上下文会把浮层压在宿主高 z-index 区域之下。
+check('top-layer 载体显式声明 z-index（防宿主内容压住浮层）',
+    /z-index:\s*var\(--nvui-z-layer\)/.test(tlBodies),
+    tlBodies.replace(/\s+/g, ' ').slice(0, 200));
+check('吐司载体层级高于面板载体（nvui-tl-toast）',
+    /dialog\.nvui-tl\.nvui-tl-toast/.test(componentsClean)
+    && /nvui-tl-toast[^{]*\{[^}]*z-index:\s*var\(--nvui-z-tooltip\)/.test(componentsClean));
 
 // ---- v2.3.0 新增：载体层级档位（非模态 dialog 无 top layer 提升，实机冒烟回归） ----
 // 实测真相：非模态 show() 不进浏览器 top layer（只有 showModal() 进，但其 inert 会废掉宿主
@@ -807,11 +842,21 @@ check('--nvui-z-layer 档位高于宿主竞争上限（>= 30000）且严格低�
     `layer=${zLayerVal} / floating=${zFloatingVal}`);
 check('--nvui-z-layer 已在 README 层级表登记（含档位理由）',
     /--nvui-z-layer/.test(readme) && /1000000/.test(readme));
-check('文档不再保留「由 dialog 提升渲染层级 / top layer 决定层级」错误论断',
-    !/由 dialog 提升渲染层级/.test(componentsClean)
-    && !/由浏览器 top layer 决定/.test(readme)
-    && !/由 dialog 提升渲染层级/.test(readme),
-    'components.css / README 仍含想当然的 top-layer 提层论断');
+// 文档里允许「引述并纠正」这些旧论断，但不允许把它们当作事实陈述保留。
+// 判定方式：每处出现所在的行必须带有纠正语境标记（想当然 / 错误 / 此前 / 不进 / 修正 …）。
+const CORRECTION_CTX = /想当然|错误|误判|此前|原来|原本|不进|不进入|修正|纠正|已统一|不代表|不是|非模态|禁用|只会/;
+function badClaimLines(text, re) {
+    return text.split(/\r?\n/).filter((line) => re.test(line) && !CORRECTION_CTX.test(line));
+}
+const badClaims = [
+    ...badClaimLines(componentsClean, /由 dialog 提升渲染层级/),
+    ...badClaimLines(readme, /由浏览器 top layer 决定/),
+    ...badClaimLines(readme, /由 dialog 提升渲染层级/),
+    ...badClaimLines(readme, /实际层级由 top layer 决定/),
+];
+check('文档不再保留「由 dialog 提升渲染层级 / top layer 决定层级」错误论断（引述纠正语境除外）',
+    badClaims.length === 0,
+    badClaims.slice(0, 3).join(' | '));
 
 // ---- 4.2 玻璃表面（backdrop-filter / 受光边 / 内高光） ----
 const GLASS_SURFACES = ['.nvui-overlay', '.nvui-modal', '.nvui-floating', '.nvui-tooltip', '.nvui-toast', '.nvui-glass'];
@@ -893,6 +938,34 @@ check('.nvui-solid 实心模式：面板同样回退不透明并关闭模糊',
     solidRules.some((r) => /\.nvui-panel/.test(r.selector)
         && /background(?:-color)?\s*:[^;]*var\(--nvui-bg(?:-2)?\)/.test(r.body)
         && /backdrop-filter\s*:\s*none/.test(r.body)));
+/* 回归（ISSUES.md #15/#16/#17）：宿主用 `body.no-blur * { backdrop-filter: unset !important }`
+ * 全局关模糊时，浏览器仍「支持」backdrop-filter → @supports 探测不到。
+ * v2.7.2 起：三态探测 + 半透明回退（.nvui-glass-fallback，不再整块 .nvui-solid）；
+ * 探测前临时摘掉降级类避免自锁，CSS 未就绪时 unknown 不落回退并重探。 */
+check('玻璃能力探测：读实际计算值 backdropFilter（不靠 @supports），三态 + 可逆',
+    /detectGlassSupport/.test(apiSrc)
+    && /getComputedStyle/.test(apiSrc)
+    && /backdropFilter/.test(apiSrc)
+    && /syncGlassFallback/.test(apiSrc)
+    && /function probeGlassState/.test(apiSrc)
+    && /unknown/.test(apiSrc)
+    && /clearGlassFallback/.test(apiSrc)
+    && /glassRecheckAttempts/.test(apiSrc));
+check('玻璃自动回退改为半透明类 .nvui-glass-fallback（不再把 .nvui-solid 作为自动回退）',
+    /nvui-glass-fallback/.test(apiSrc)
+    && /function syncGlassFallback[\s\S]{0,900}applyGlassFallback/.test(apiSrc)
+    && !/function syncGlassFallback[\s\S]{0,900}classList\.add\(['"]nvui-solid['"]\)/.test(apiSrc));
+const glassFallbackBodies = (componentsClean.match(/\.nvui-glass-fallback[^{]*\{[^}]*\}/g) || []).join('\n');
+check('CSS 半透明回退使用 token 派生 97% 档（color-mix，AA 安全）且位于 .nvui-solid 之前（用户实心优先）',
+    /var\(--nvui-glass-bg-strong\)/.test(glassFallbackBodies)
+    && /color-mix\(in srgb,\s*var\(--nvui-bg-2\)\s*97%,\s*transparent\)/.test(glassFallbackBodies)
+    && /backdrop-filter\s*:\s*none/.test(glassFallbackBodies)
+    && componentsClean.indexOf('.nvui-glass-fallback .nvui-overlay') >= 0
+    && componentsClean.indexOf('.nvui-glass-fallback .nvui-overlay') < componentsClean.indexOf('.nvui-solid .nvui-overlay'));
+check('createPanel / showToast / openLayer 内置玻璃回退调用',
+    /function createPanel[\s\S]{0,400}syncGlassFallback\(\)/.test(apiSrc)
+    && /function showToast[\s\S]{0,200}syncGlassFallback\(\)/.test(apiSrc)
+    && /function openLayer[\s\S]{0,900}syncGlassFallback\(\)/.test(apiSrc));
 const rtRules = contextRules(/prefers-reduced-transparency:\s*reduce/);
 const rtBodies = joinedBodies(rtRules);
 check('prefers-reduced-transparency: reduce 降级块（玻璃回退不透明 + 关闭模糊）',
@@ -916,6 +989,10 @@ const latePanelRules = componentRules.filter((r) => /\.nvui-overlay\.is-panel\s*
 const latePanelIdx = componentsClean.indexOf('.nvui-overlay.is-panel > .nvui-panel');
 check('面板降级采用晚绑定覆盖（3 个降级块，位于基础规则之后）',
     latePanelRules.length >= 3 && latePanelIdx > basePanelIdx && basePanelIdx > 0);
+const narrowPanelRule = componentRules.filter((r) => r.context.some((c) => /max-width:\s*600px/.test(c))
+    && r.selector.split(',').some((sel) => sel.trim() === '.nvui-panel'));
+check('窄屏面板保持玻璃态：backdrop-filter 降档为 --nvui-glass-blur-sm',
+    narrowPanelRule.some((r) => /backdrop-filter\s*:[^;]*var\(--nvui-glass-blur-sm\)/.test(r.body)));
 check('面板降级晚绑定：均关闭 backdrop-filter，且不透明回退与 CanvasText 边界齐全',
     latePanelRules.every((r) => /-webkit-backdrop-filter\s*:\s*none/.test(r.body) && /backdrop-filter\s*:\s*none/.test(r.body))
     && latePanelRules.some((r) => /background(?:-color)?\s*:[^;]*var\(--nvui-bg\)/.test(r.body))
@@ -937,6 +1014,27 @@ check('reduced-motion 覆盖 animation-delay（延迟一并归零）',
 check('reduced-motion 覆盖 animation-iteration-count 与 scroll-behavior',
     /animation-iteration-count:\s*1 !important/.test(rmBodies)
     && /scroll-behavior:\s*auto !important/.test(rmBodies));
+
+/* 回归（ISSUES.md #13）：reduced-motion 门禁不得只依赖 .nvui-scope 通配。
+ * 宿主把 kit 组件挂进自己的容器却没加 .nvui-scope 时，组件动画也必须降级；
+ * 因此所有「自身带 animation/transition 的 kit 类」都必须在降级块里被逐个点名。 */
+const rmSelectorText = rmRules.map((r) => r.selector).join('\n');
+/** 从组件规则里抽出「自身带 animation/transition」的 kit 基类（去掉状态类与伪类） */
+const animatedKitClasses = new Set();
+for (const r of componentRules) {
+    if (!/\banimation(?:-name)?\s*:|\btransition\s*:/.test(r.body)) continue;
+    for (const sel of r.selector.split(',')) {
+        const m = sel.trim().match(/\.((?:nvui)-[a-z0-9-]+)/i);
+        if (m) animatedKitClasses.add(m[1]);
+    }
+}
+const missingInRm = [...animatedKitClasses].filter((c) => !rmSelectorText.includes(`.${c}`));
+check('reduced-motion 降级逐个点名所有带动效的 kit 类（不依赖 .nvui-scope）',
+    missingInRm.length === 0,
+    `未点名: ${missingInRm.join(', ')}｜已点名 ${animatedKitClasses.size} 类`);
+check('reduced-motion 保留 .nvui-scope 与 dialog.nvui-tl 两层作用域通配',
+    /\.nvui-scope \*/.test(rmSelectorText)
+    && /dialog\.nvui-tl \*/.test(rmSelectorText));
 const focusRingCount = (componentsClean.match(/outline:\s*var\(--nvui-focus-ring-w\)\s+solid\s+var\(--nvui-focus-ring-color\)/g) || []).length;
 check('focus ring 统一走 token（>= 6 处）', focusRingCount >= 6, `实际 ${focusRingCount} 处`);
 check('不再硬编码 outline 像素值 / 旧 accent 硬编码写法',
@@ -1182,6 +1280,13 @@ check('进度条扫光：.nvui-progress-bar::after 引用 nvui-shimmer 且用 tr
     && hasRule('.nvui-progress-bar::after', /background\s*:[^;]*gradient\(/));
 check('不确定进度关键帧含 scaleX 呼吸（transform-only，不触发布局）',
     componentKeyframes.some((k) => k.name === 'nvui-progress-indeterminate' && /scaleX\(/.test(k.body)));
+/* 回归（ISSUES.md #11）：0% / 100% 时扫光必须停下，不能常驻无限动画 */
+check('进度条扫光在 idle(0%) / complete(100%) 状态停止（is-idle / is-complete）',
+    hasRule('.nvui-progress.is-idle .nvui-progress-bar::after', /animation\s*:\s*none/)
+    && hasRule('.nvui-progress.is-complete .nvui-progress-bar::after', /animation\s*:\s*none/));
+check('NVUI.progress() 自动维护 is-idle / is-complete（0% 与 100% 停扫光）',
+    /is-idle/.test(apiSrc) && /is-complete/.test(apiSrc)
+    && /syncActivity/.test(apiSrc));
 
 // ---- 4.12 v2.0.1 追加：标签页「粘连」滑动指示器 ----
 const tabsBaseBodies = plainRuleBodies('.nvui-tabs').join('\n');
@@ -1205,15 +1310,42 @@ check('is-indicator 状态：显示指示器 + 接管选中态（active 按钮�
 
 // ---- 4.13 v2.1.0 新增：SillyTavern 插件面板布局标准（桌面居中 / 手机底部抽屉） ----
 const panelBaseBodies = plainRuleBodies('.nvui-panel').join('\n');
+/* v2.7.2：只检查「顶层基础规则」——降级块里的 .nvui-panel 仍应保留 backdrop-filter:none */
+const panelTopLevelBodies = joinedBodies(componentRules.filter((r) => r.context.length === 0
+    && r.selector.split(',').some((sel) => sel.trim() === '.nvui-panel')));
 const panelStructureMissing = [];
-if (!/background(?:-color)?\s*:[^;]*var\(--nvui-glass-bg\)/.test(panelBaseBodies)) panelStructureMissing.push('玻璃底 --nvui-glass-bg');
-if (!/backdrop-filter\s*:/.test(panelBaseBodies)) panelStructureMissing.push('backdrop-filter');
+/* 面板玻璃底色可由 --nvui-glass-bg 或 token 派生的 color-mix(--nvui-bg) 提供 */
+if (!/var\(--nvui-glass-bg\)|color-mix\(in srgb,\s*var\(--nvui-bg\)/.test(panelBaseBodies)) panelStructureMissing.push('玻璃底（--nvui-glass-bg 或 color-mix --nvui-bg）');
+/* v2.7.2：玻璃态必须由面板自身的 backdrop-filter 提供（透明面板 + 背后模糊） */
+if (!/backdrop-filter\s*:/.test(panelTopLevelBodies)) panelStructureMissing.push('面板自身 backdrop-filter（背后模糊）');
 if (!/display:\s*flex/.test(panelBaseBodies)) panelStructureMissing.push('display:flex');
 if (!/flex-direction:\s*column/.test(panelBaseBodies)) panelStructureMissing.push('flex-direction:column');
-if (!/width:\s*min\(var\(--nvui-panel-width\),\s*100%\)/.test(panelBaseBodies)) panelStructureMissing.push('width:min(--nvui-panel-width,100%)');
+if (!/width:\s*var\(--nvui-panel-w,\s*min\(var\(--nvui-panel-width\),\s*100%\)\)/.test(panelBaseBodies)) panelStructureMissing.push('width:var(--nvui-panel-w, min(--nvui-panel-width,100%))');
 if (!/max-height:\s*var\(--nvui-panel-max-h\)/.test(panelBaseBodies)) panelStructureMissing.push('max-height:--nvui-panel-max-h');
-check('.nvui-panel 面板容器：玻璃表面 + flex 列 + width:min(--nvui-panel-width,100%) + max-height:--nvui-panel-max-h',
-    panelStructureMissing.length === 0, `缺少: ${panelStructureMissing.join(', ')}`);
+check('.nvui-panel 面板容器：玻璃底 + 面板自身 backdrop-filter（背后模糊）+ flex 列 + 固定宽高',
+    panelStructureMissing.length === 0, `缺少/违规: ${panelStructureMissing.join(', ')}`);
+
+/* v3.0.0 / C2：按钮组三件套的排版声明必须只有一处来源。
+   v2 是四段几乎相同的 flex + gap，改一处要同步四处、行为差异也没人记得住。
+   这条断言把「不许再分叉」写进 CI：命中 display:flex + gap 且同时覆盖
+   .nvui-actions 与 .nvui-btn-row 的规则必须恰好一条，且两个 footer 也在其中。 */
+const btnGroupRules = componentRules.filter((r) => /\.nvui-actions\b/.test(r.selector)
+    && /\.nvui-btn-row\b/.test(r.selector)
+    && /display:\s*flex/.test(r.body));
+check('按钮组排版声明单一来源（.nvui-actions / .nvui-btn-row / 两个 footer 共用一条规则）',
+    btnGroupRules.length === 1
+    && /\.nvui-panel-footer\b/.test(btnGroupRules[0].selector)
+    && /\.nvui-modal-footer\b/.test(btnGroupRules[0].selector)
+    && /gap:\s*var\(--nvui-space-2\)/.test(btnGroupRules[0].body),
+    `命中 ${btnGroupRules.length} 条`);
+check('.nvui-actions 仍是右对齐操作区（零 specificity，下游可覆盖）',
+    componentRules.some((r) => /\.nvui-actions\b/.test(r.selector) && /justify-content:\s*flex-end/.test(r.body)));
+/* v2.7.2：面板玻璃规则必须提升到 dialog.nvui-tl 作用域，才能在真实 ST 中压过其它扩展内嵌的旧版 kit CSS */
+const carrierGlassRule = componentRules.find((r) => /dialog\.nvui-tl\s+\.nvui-panel/.test(r.selector)
+    && /color-mix\(in srgb,\s*var\(--nvui-bg\)/.test(r.body)
+    && /backdrop-filter\s*:[^;]*blur\(calc\(var\(--nvui-glass-blur\)/.test(r.body));
+check('面板玻璃作用域提升（dialog.nvui-tl .nvui-panel：透明底 + 强背后模糊，压过旧扩展副本）',
+    !!carrierGlassRule, carrierGlassRule ? '' : '未找到载体作用域的面板玻璃规则');
 
 const PANEL_PARTS = ['.nvui-panel-header', '.nvui-panel-title', '.nvui-panel-actions',
     '.nvui-panel-body', '.nvui-panel-footer', '.nvui-panel-heading'];
@@ -1262,8 +1394,8 @@ check('功能行 .nvui-switch-row.is-feature：主色左边条 + 淡底 + 去底
     featureRowMissing.length === 0, `缺少: ${featureRowMissing.join(', ')}`);
 
 // ---- 4.14 v2.1.1 打磨：单圈焦点环 / 面板固定尺寸 / 隐藏滚动条 ----
-check('.nvui-panel 固定高度：height:var(--nvui-panel-max-h)（折叠展开不改变外框）',
-    /(?<![\w-])height:\s*var\(--nvui-panel-max-h\)/.test(plainRuleBodies('.nvui-panel').join('\n')));
+check('.nvui-panel 固定高度：height 走 --nvui-panel-h 变量、回落 --nvui-panel-max-h（折叠展开不改变外框）',
+    /(?<![\w-])height:\s*var\(--nvui-panel-h,\s*var\(--nvui-panel-max-h\)\)/.test(plainRuleBodies('.nvui-panel').join('\n')));
 const narrowPanelHeightRules = rulesFor('.nvui-panel')
     .filter((r) => r.context.some((c) => /max-width:\s*600px/.test(c)));
 check('≤600px 手机抽屉固定高度：height:92dvh 且保留 max-height',
@@ -1304,9 +1436,9 @@ console.log('\n=== 5. 作用域与工程约定 ===');
 const compSelectors = collectSelectors(componentsClean);
 const bareSelectors = compSelectors.filter(({ selector }) => {
     if (!selector) return false;
-    return !/^(?:\.nvui-|dialog\.nvui-tl)/.test(selector);
+    return !/^(?:\.nvui-|dialog\.nvui-tl|:where\()/.test(selector);
 });
-check('components.css 无裸元素选择器（全部 .nvui-* / dialog.nvui-tl 作用域）',
+check('components.css 无裸元素选择器（.nvui-* / dialog.nvui-tl / :where(...) 作用域）',
     bareSelectors.length === 0, bareSelectors.slice(0, 5).map((s) => s.selector).join(' | '));
 
 const classTokens = new Set();
@@ -1317,14 +1449,116 @@ const badClassTokens = [...classTokens].filter((c) => !c.startsWith('nvui-') && 
 check('组件选择器中的类名只允许 nvui-* 与 is-* 状态类', badClassTokens.length === 0,
     badClassTokens.join(', '));
 
-const importantCount = (componentsClean.match(/!important/g) || []).length;
-check('!important 数量受控（<= 8，仅宿主隔离 + 动效降级）', importantCount <= 8,
-    `实际 ${importantCount}`);
-const importantLines = componentsClean.split(/\r?\n/).filter((l) => l.includes('!important'));
-const badImportantLines = importantLines.filter((l) =>
-    !/(::before|content:|display:|animation-|animation-delay|transition-|scroll-behavior)/.test(l));
-check('!important 只出现在宿主 ::before 隔离与 reduced-motion 降级声明上',
-    badImportantLines.length === 0, badImportantLines.slice(0, 3).join(' | '));
+/* 触控尺寸下限（2026-11-16，GH-#21）：移动端底部导航项不得低于 40px。
+ * 26px 满足 WCAG 2.5.8 AA 的 24px，但低于 iOS 44pt / Material 48dp 的拇指建议；
+ * 本项目折中取 40px。改动必须同步本条与 test/host/smoke-panel.js 的实机断言。 */
+const navItemRule = (() => {
+    const i = componentsClean.indexOf('.nvui-bottom-nav-item {');
+    if (i === -1) return '';
+    return componentsClean.slice(i, componentsClean.indexOf('}', i) + 1);
+})();
+check('移动端底部导航项 min-height ≥ 40px（触控尺寸下限，GH-#21）',
+    /min-height:\s*40px/.test(navItemRule), navItemRule.slice(0, 90).replace(/\s+/g, ' '));
+
+/* v2.8.0：!important 预算 14 → 18，新增第 ④ 类「force 玻璃」4 条。
+ * 18 = ① checkbox 宿主 ::before 压制 2
+ *      + ② reduced-motion 降级 5
+ *      + ③ 宿主表单控件隔离 7
+ *      + ④ v2.8.0 force 玻璃 4（panel/overlay 各 background + backdrop-filter）
+ * 只放行下面这张清单里的「属性: 值」，不接受任意 background/color/margin，
+ * 防止预算被当成通用放行证而后门式增长。 */
+const IMPORTANT_BUDGET = 18;
+const impCount = (componentsClean.match(/!important/g) || []).length;
+check(`!important 预算 = ${IMPORTANT_BUDGET}（四类有界规则）`, impCount === IMPORTANT_BUDGET,
+    `实际 ${impCount}`);
+
+const impDeclsOf = (body) => body
+    .split(';')
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter((s) => s.includes('!important'))
+    .map((s) => s.replace(/\s*!important$/, '').trim());
+const impRules = componentRules.filter((r) => /!important/.test(r.body));
+const impDeclTotal = impRules.reduce((n, r) => n + impDeclsOf(r.body).length, 0);
+
+const impRmRules = impRules.filter((r) => r.context.some((c) => /prefers-reduced-motion/.test(c)));
+/* 先摘出 reduced-motion（它的选择器也含 ::before/::after），再在剩余规则里分 ::before 与表单隔离 */
+const impNonRmRules = impRules.filter((r) => !impRmRules.includes(r));
+const impBeforeRules = impNonRmRules.filter((r) => /::before/.test(r.selector));
+const impForceRules = impNonRmRules.filter((r) => /data-nvui-glass=["']force["']/.test(r.selector));
+const impFormRules = impNonRmRules.filter((r) => !impBeforeRules.includes(r) && !impForceRules.includes(r));
+
+const impBeforeDecls = impBeforeRules.flatMap((r) => impDeclsOf(r.body));
+const impRmDecls = impRmRules.flatMap((r) => impDeclsOf(r.body));
+const impFormDecls = impFormRules.flatMap((r) => impDeclsOf(r.body));
+const impForceDecls = impForceRules.flatMap((r) => impDeclsOf(r.body));
+
+check('!important 声明总数与规则解析一致，且四类之外没有遗漏规则',
+    impDeclTotal === impCount
+    && impBeforeRules.length + impRmRules.length + impFormRules.length + impForceRules.length === impRules.length,
+    `decl=${impDeclTotal} / rules=${impRules.length}`);
+
+check('checkbox 宿主隔离只复用既有 ::before 压制（2 条，独立复选框不新增 !important）',
+    impBeforeDecls.length === 2
+    && impBeforeDecls.every((d) => ['content: none', 'display: none'].includes(d))
+    && impBeforeRules.every((r) => /\.nvui-checkbox/.test(r.selector) && /\.nvui-switch-row/.test(r.selector)),
+    impBeforeDecls.join(' | '));
+
+check('reduced-motion 降级块保持 5 条 !important',
+    impRmDecls.length === 5
+    && ['animation-duration: 0.01ms', 'animation-iteration-count: 1', 'animation-delay: 0.01ms',
+        'transition-duration: 0.01ms', 'scroll-behavior: auto'].every((d) => impRmDecls.includes(d)),
+    impRmDecls.join(' | '));
+
+const FORM_IMPORTANT_ALLOW = {
+    'background: var(--nvui-input-bg)': 1,
+    'color: var(--nvui-text)': 2,
+    'border: none': 1,
+    'margin: 0': 1,
+    'background: var(--nvui-block-bg)': 1,
+    'background: var(--nvui-bg-2)': 1,
+};
+const impFormDeclCounts = impFormDecls.reduce((acc, d) => { acc[d] = (acc[d] || 0) + 1; return acc; }, {});
+check('宿主表单隔离的 7 条 !important 只允许清单内的 token / 明确 reset 值',
+    impFormDecls.length === 7
+    && Object.keys(impFormDeclCounts).length === Object.keys(FORM_IMPORTANT_ALLOW).length
+    && Object.keys(FORM_IMPORTANT_ALLOW).every((k) => impFormDeclCounts[k] === FORM_IMPORTANT_ALLOW[k]),
+    JSON.stringify(impFormDeclCounts));
+
+check('v2.8.0 force 玻璃仅 4 条 !important（panel/overlay 各 background + backdrop-filter）',
+    impForceRules.length === 2
+    && impForceDecls.length === 4
+    && impForceDecls.filter((d) => /^background:/.test(d)).length === 2
+    && impForceDecls.filter((d) => /^backdrop-filter:/.test(d)).length === 2
+    && impForceRules.every((r) => /dialog\.nvui-tl\[data-nvui-glass=["']force["']\]/.test(r.selector)),
+    impForceRules.map((r) => r.selector).join(' | '));
+check('宿主表单隔离仍以 dialog.nvui-tl + .nvui-panel 为基线选择器（v2.7.0 追加显式 .nvui-form-scope）',
+    impFormRules.length > 0
+    && impFormRules.every((r) => /dialog\.nvui-tl/.test(r.selector) && /\.nvui-panel/.test(r.selector)),
+    impFormRules.map((r) => r.selector.replace(/\s+/g, ' ')).join(' | '));
+
+/* v2.7.0：opt-in .nvui-form-scope 只复用上面 7 条声明。
+ * 断言：4 条规则都含 scope；共 8 个 scope 选择器（7 个唯一串，select 基础态在
+ * 基础块与 margin 块各出现一次）；每个串必须精确等于允许清单；除这 4 条规则外，
+ * components.css 不得再出现任何 .nvui-form-scope 规则（防定位/遮罩/模态副作用）。 */
+const scopeFormSelectors = impFormRules
+    .flatMap((r) => r.selector.split(',').map((s) => s.trim()))
+    .filter((s) => /\.nvui-form-scope\b/.test(s));
+const FORM_SCOPE_ALLOWED = [
+    '.nvui-form-scope input.nvui-input',
+    '.nvui-form-scope select.nvui-input',
+    '.nvui-form-scope textarea.nvui-input',
+    '.nvui-form-scope input.nvui-input:hover',
+    '.nvui-form-scope select.nvui-input:hover',
+    '.nvui-form-scope textarea.nvui-input:hover',
+    '.nvui-form-scope select.nvui-input option',
+];
+check('v2.7.0 .nvui-form-scope 只复用 7 条有界隔离声明（8 个精确选择器，无独立规则/副作用）',
+    impFormRules.every((r) => /\.nvui-form-scope\b/.test(r.selector))
+    && scopeFormSelectors.length === 8
+    && [...new Set(scopeFormSelectors)].length === 7
+    && scopeFormSelectors.every((s) => FORM_SCOPE_ALLOWED.includes(s))
+    && componentRules.every((r) => !/\.nvui-form-scope\b/.test(r.selector) || impFormRules.includes(r)),
+    `scope selector=${scopeFormSelectors.length} / ${[...new Set(scopeFormSelectors)].join(' | ')}`);
 
 check('kit CSS/预览页不残留旧 --nv- / novel- 命名（仅 README 迁移表允许）',
     !/--nv-(?!ui)/.test(tokensClean + componentsClean + previewClean)
@@ -1386,6 +1620,20 @@ if (!/infinite/.test(preview)) previewReduceMissing.push('循环动画 infinite 
 if (!/(?:减少动态|减少动效|被降级|强制播放)/.test(preview)) previewReduceMissing.push('reduce 提示文案');
 check('preview 在系统 reduce 下显示提示，并可用 body.pv-force-motion 覆盖动画/过渡时长（含循环动画恢复）',
     previewReduceMissing.length === 0, `缺少: ${previewReduceMissing.join(', ')}`);
+
+/* 回归（ISSUES.md #14）：preview 的动效重播不得逐节点强制回流；滚动重定位必须按帧合并 */
+const replayFn = (preview.match(/function replayMotion\(\)\s*\{[\s\S]*?\n {4}\}/) || [''])[0];
+check('preview 动效重播：批量摘类后只做一次全局强制回流（不逐节点读 offsetWidth）',
+    replayFn.length > 0
+    && /pending\.push/.test(replayFn)
+    && /void document\.body\.offsetWidth/.test(replayFn)
+    && !/void node\.offsetWidth/.test(replayFn),
+    replayFn.slice(0, 160));
+const scrollHandler = (preview.match(/function repositionTip\(\)\s*\{[\s\S]*?\n {4}\}/) || [''])[0];
+check('preview 滚动重定位用 requestAnimationFrame 合并（每帧至多一次）',
+    /requestAnimationFrame/.test(scrollHandler)
+    && /repositionRaf/.test(scrollHandler),
+    scrollHandler.slice(0, 160));
 
 // ---- v2.1.0 新增：第 18 节插件面板布局标准 demo ----
 const previewPanelMissing = [];
@@ -1519,10 +1767,156 @@ check('README 新增 ### 10.8 v2.2.0 -> v2.3.0 载体层级修复说明（含 --
     && readme.includes('#sheld'));
 check('AI-GUIDE 硬约束 3 修正为「非模态不进 top layer + 载体自身 z-index 档位」',
     /非模态.*top layer|载体自身/.test(aiGuide) && aiGuide.includes('--nvui-z-layer'));
+// 防漂移：载体档位一旦定档，文档/CSS/AI-GUIDE 三处不得再把载体写成 --nvui-z-overlay。
+// （v2.3.0 合并时曾出现这类漂移，故加断言守护。）
+const carrierTokenDocs = [readme, aiGuide, componentsClean];
+check('载体档位在三处文档中一致为 --nvui-z-layer（不得回退成 --nvui-z-overlay）',
+    carrierTokenDocs.every((t) => !/载体[^\n]{0,80}--nvui-z-overlay/.test(t))
+    && carrierTokenDocs.every((t) => t.includes('--nvui-z-layer')));
+check('README 层级表把 --nvui-z-overlay 描述为子浮层档位（不再兼任载体档）',
+    /--nvui-z-overlay[^\n]*1000020[^\n]*子浮层/.test(readme));
+check('README 新增 13.6 性能实测结论章节（含帧间隔判定与「累计布局耗时 ≠ 卡顿」方法论）',
+    /### 13\.6 性能实测结论/.test(readme)
+    && readme.includes('帧间隔')
+    && readme.includes('累计布局耗时')
+    && readme.includes('st-perf-probe.js')
+    && readme.includes('st-modal-layer-check.js'));
+check('README 新增 13.7 载体与宿主模态章节（说明 inert 根因与主动让位策略）',
+    /### 13\.7 载体与宿主模态/.test(readme)
+    && readme.includes('inert')
+    && readme.includes('is-host-modal')
+    && readme.includes('st-carrier-host-modal-check.js'));
+check('CSS 提供宿主模态降级态 .is-host-modal（不可点 + 压暗 + 子浮层让位）',
+    /dialog\.nvui-tl\.is-host-modal\s*\{[^}]*pointer-events:\s*none/.test(componentsClean)
+    && /dialog\.nvui-tl\.is-host-modal\s*\{[^}]*opacity:\s*0?\.35/.test(componentsClean)
+    && /\.is-host-modal\s*>\s*\.nvui-overlay[\s\S]*?pointer-events:\s*none/.test(componentsClean));
+check('nvui-api 导出三个宿主模态 API（countHostModals / syncHostModalState / getCarrierState）',
+    ['countHostModals', 'syncHostModalState', 'getCarrierState']
+        .every((k) => new RegExp(`\\b${k}:\\s*${k}\\b`).test(apiSrc)));
+check('nvui-api 在 createPanel / showToast / openLayer 中同步宿主模态降级态',
+    (apiSrc.match(/syncHostModalState\(\)/g) || []).length >= 3
+    && /function installHostModalWatcher/.test(apiSrc));
+check('宿主模态降级态不依赖 :modal 之外的选择器，且排除 kit 自身载体（不自我降级）',
+    /dialog:modal/.test(apiSrc)
+    && /classList\.contains\('nvui-tl'\)\)\s*continue/.test(apiSrc));
+check(`版本号全量对齐 v${KIT_VERSION}（package.json / tokens.json / tokens.css / components.css）`,
+    pkg.version === KIT_VERSION
+    && tokensJson.version === KIT_VERSION
+    && tokensCss.includes(`ui-kit v${KIT_VERSION}`)
+    && componentsCss.includes(`ui-kit v${KIT_VERSION}`));
+// ---- 防模板漂移：st-extension-template/ui-kit/ 下每个资产文件都必须与根目录**逐文件**一致 ----
+// 历史教训：早期只校验了 nvui-api.js / components.css / tokens.css 三个文件，
+// 漏掉 tokens.json（机器可读镜像），导致副本版本号落后两版、且缺失 --nvui-z-layer
+// 这类「只写在 JSON 镜像里、CSS 侧不受影响」的漂移长期无人发现。
+// 因此这里改为：逐文件用 crypto 计算 md5 并与根目录比对，失败时给出具体差异提示。
+const TPL_KIT = path.join(KIT, 'st-extension-template', 'ui-kit');
+const TPL_ASSET_FILES = ['nvui-api.js', 'components.css', 'tokens.css', 'tokens.json'];
+const md5Of = (p) => crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex');
+for (const f of TPL_ASSET_FILES) {
+    const rootFile = path.join(KIT, f);
+    const tplFile = path.join(TPL_KIT, f);
+    let detail = '';
+    let same = false;
+    if (!fs.existsSync(tplFile)) {
+        detail = `副本缺失：${tplFile}`;
+    } else if (!fs.existsSync(rootFile)) {
+        detail = `根目录文件缺失：${rootFile}`;
+    } else {
+        const rootHash = md5Of(rootFile);
+        const tplHash = md5Of(tplFile);
+        same = rootHash === tplHash;
+        if (!same) {
+            detail = `md5 不一致 根=${rootHash} 副本=${tplHash}；`
+                + `请用 cp ${f} st-extension-template/ui-kit/${f} 重新对齐`;
+        }
+    }
+    check(`st-extension-template 副本与根目录一致（防模板漂移）：${f}`, same, detail);
+}
+// 副本 tokens.json 自身的语义自检：版本号必须跟根目录一致，且必须带载体档令牌 --nvui-z-layer
+// （该令牌只在 JSON 镜像里丢失时 CSS 侧不会报错，因此需要单独守护）。
+{
+    const tplJsonPath = path.join(TPL_KIT, 'tokens.json');
+    let detail = '';
+    let ok = false;
+    try {
+        const tplJson = JSON.parse(readText(tplJsonPath));
+        const versionOk = tplJson.version === KIT_VERSION;
+        const layerOk = !!(tplJson.dark && tplJson.dark['--nvui-z-layer']);
+        ok = versionOk && layerOk;
+        if (!ok) {
+            detail = `version=${tplJson.version}(期望 ${KIT_VERSION})；`
+                + `--nvui-z-layer=${layerOk ? tplJson.dark['--nvui-z-layer'] : '缺失'}`;
+        }
+    } catch (e) {
+        detail = `解析失败：${e.message}`;
+    }
+    check('st-extension-template 副本 tokens.json 版本号与 --nvui-z-layer 载体档齐全', ok, detail);
+}
+check('新增实机脚本 probe/st-carrier-host-modal-check.js 存在',
+    fs.existsSync(path.join(KIT, 'test', 'probe', 'st-carrier-host-modal-check.js')));
+check('README 排版规范（标题层级不跳级 / 表格列数一致 / 代码围栏配对 / 无连续空行）',
+    (() => {
+        const lines = readme.split(/\r?\n/);
+        const problems = [];
+        let inFence = false;
+        let headingLevel = 0;
+        let table = [];
+        const flushTable = () => {
+            if (table.length) {
+                const counts = new Set(table.map((r) => r[1].split('|').length));
+                if (counts.size > 1) problems.push(`L${table[0][0]} 表格列数不一致`);
+            }
+            table = [];
+        };
+        lines.forEach((line, idx) => {
+            const i = idx + 1;
+            if (line.trim().startsWith('```')) { inFence = !inFence; flushTable(); return; }
+            if (inFence) return;
+            const h = /^(#{1,6}) \S/.exec(line);
+            if (h) {
+                const lv = h[1].length;
+                if (headingLevel && lv > headingLevel + 1) problems.push(`L${i} 标题跳级 h${headingLevel}->h${lv}`);
+                headingLevel = lv;
+            }
+            const st = line.trim();
+            if (st.startsWith('|') && st.endsWith('|') && st.split('|').length >= 3) {
+                table.push([i, st]);
+            } else {
+                flushTable();
+            }
+            if (idx > 0 && line === '' && lines[idx - 1] === '') problems.push(`L${i} 连续空行`);
+        });
+        flushTable();
+        const fences = (readme.match(/^```/gm) || []).length;
+        if (fences % 2 !== 0) problems.push('代码围栏未配对');
+        return problems.length === 0;
+    })());
+check('ISSUES.md 待办区已清零（5 项均转为已确认-不修并附实机数据）',
+    (() => {
+        const issues = readText(path.join(KIT, 'ISSUES.md'));
+        // 用「下一个二级标题」切分，不能用字符串 split('## 已确认-不修') ——
+        // 待办区的状态列里就含「已确认-不修」，按字符串切会提前截断。
+        const m = /## 待办([\s\S]*?)(?=\n## )/.exec(issues);
+        const todoSec = m ? m[1] : '';
+        const rows = todoSec.split(/\r?\n/).filter((l) => /^\|\s*\d+\s*\|/.test(l));
+        return rows.length === 0
+            && /已确认-不修/.test(issues)
+            && issues.includes('st-perf-tabs-frames.js')
+            && issues.includes('st-modal-layer-check.js');
+    })());
 check('AI-GUIDE.md 覆盖 AI 协作指南关键词（SillyTavern / nvui-api / tokens.json / 提示词 / 验收 / 其它软件）',
     ['SillyTavern', 'nvui-api', 'tokens.json', '提示词', '验收', '其它软件']
         .every((k) => aiGuide.includes(k)));
 check('README 文件结构表补充 AUDIT.md', readme.includes('AUDIT.md'));
+check('MAINTAINING.md 存在且覆盖提交 / 版本 / Issue 三套流程判据',
+    (() => {
+        const p = path.join(KIT, 'MAINTAINING.md');
+        if (!fs.existsSync(p)) return false;
+        const doc = readText(p);
+        return ['## 1. 提交规范', '## 2. 版本迭代规范', '## 3. GitHub Issue 维护规范',
+            '## 4. 每轮的 Definition of Done', 'fixed-pending-release']
+            .every((k) => doc.includes(k));
+    })());
 check('AUDIT.md 存在且同时覆盖 v1.1.0 与 v2.0.0',
     auditExists && audit.includes('v1.1.0') && audit.includes('v2.0.0'),
     auditExists ? 'AUDIT.md 缺少版本号' : 'AUDIT.md 不存在');
@@ -1576,6 +1970,522 @@ const versionMismatch = Object.entries(versionRefs).filter(([, v]) => !v).map(([
 check(`kit 版本 v${KIT_VERSION} 在 6 处声明一致`, versionMismatch.length === 0, versionMismatch.join(', '));
 check('测试本身位于项目内（test/test-ui-kit.js）',
     path.resolve(FILES.self) === path.join(KIT, 'test', 'test-ui-kit.js'));
+
+// ==================== 9. 运行时契约（nvui-api.js 行为红线） ====================
+/*
+ * v2.2.1 起补：此前测试全部是「文本/静态」断言，测不到任何运行时行为，
+ * 导致 animationend 冒泡截断退场动画这类真 bug 长期潜伏。
+ * 本节用「源码断言 + 轻量 DOM 行为断言」双保险守护关键运行时契约。
+ * 需要 DOM 行为的部分在无 DOM 环境自动跳过（不误报失败）。
+ */
+console.log('\n=== 9. 运行时契约（nvui-api.js 行为红线） ===');
+
+/* --- 9.1 XSS 通道：el() 不得保留 innerHTML 分支 --- */
+check('nvui-api: el() 已移除 html/innerHTML 通道（防 XSS）',
+    !/innerHTML/.test(apiSrc),
+    apiSrc.match(/innerHTML[^\n]*/)?.[0] || '');
+check('nvui-api: 文本内容统一走 textContent',
+    /textContent\s*=\s*String\(v\)/.test(apiSrc));
+
+/* --- 9.1b 属性白名单（NEW-01 / NEW-20）：el() 不得再接受任意属性名 --- */
+check('nvui-api: el() 走属性白名单（拒绝 on* / style / srcdoc 等注入通道）',
+    /function attrAllowed\(/.test(apiSrc)
+    && /ALLOWED_ATTRS/.test(apiSrc)
+    && /lower\.indexOf\('on'\)\s*===\s*0/.test(apiSrc)
+    && /lower\s*===\s*'style'/.test(apiSrc)
+    && /lower\s*===\s*'srcdoc'/.test(apiSrc),
+    apiSrc.match(/function attrAllowed\([^)]*\)[\s\S]{0,600}/)?.[0] || '');
+check('nvui-api: el() 白名单外的属性被丢弃而不是透传',
+    /!attrAllowed\(k\)/.test(apiSrc)
+    && /warn\('el\(\): 已丢弃白名单外的属性/.test(apiSrc));
+
+/* --- 9.1c 图标入参（NEW-14）：非字符串非 Node 不得直接当 DOM 用 --- */
+check('nvui-api: iconNode 只接受字符串或真实 Node（避免 appendChild 抛 TypeError）',
+    /function iconNode\(/.test(apiSrc)
+    && /iconClass\s+instanceof\s+Node/.test(apiSrc)
+    && !/if\s*\(typeof iconClass\s*!==\s*'string'\)\s*return iconClass;/.test(apiSrc));
+
+/* --- 9.1d 标签 key 归一化（NEW-02）：非法 key 不得直接拼进 DOM id --- */
+check('nvui-api: tabs[].key 经 sanitizeIdPart 归一化后才拼进 DOM id',
+    /function sanitizeIdPart\(/.test(apiSrc)
+    && /replace\(\/\[\^A-Za-z0-9_-\]\/g,\s*'_'\)/.test(apiSrc)
+    && /id\s*\+\s*'-tab-'\s*\+\s*t\.domKey/.test(apiSrc)
+    && /id\s*\+\s*'-pane-'\s*\+\s*t\.domKey/.test(apiSrc));
+check('nvui-api: 重复 tab key 去重（首个保留，后续追加序号），不静默覆盖面板',
+    /domKeySet\.set\(domKey, true\)/.test(apiSrc)
+    && /keyMap\.set\(origKey, domKey\)/.test(apiSrc));
+check('nvui-api: 面板 id 本身也做归一化（派生子 id 必须合法）',
+    /uniqueId\(sanitizeIdPart\(opts\.id/.test(apiSrc));
+
+/* --- 9.1e 焦点兜底（NEW-03）：选择器注入面 + 非法选择器不得抛未捕获异常 --- */
+check('nvui-api: focusFallback 走受限解析（纯 #id 用 getElementById，其余 try/catch）',
+    /function resolveFocusFallback\(/.test(apiSrc)
+    && /getElementById\(sel\.slice\(1\)\)/.test(apiSrc)
+    && /try\s*\{[\s\S]{0,200}document\.querySelector\(sel\)[\s\S]{0,120}catch/.test(apiSrc),
+    apiSrc.match(/function resolveFocusFallback\([^)]*\)[\s\S]{0,900}/)?.[0] || '');
+check('nvui-api: focusFallback 不再裸调 document.querySelector（无 try/catch 的注入面）',
+    !/document\.querySelector\(fb\)/.test(apiSrc));
+
+/* --- 9.1f 进度条归一化（NEW-04）：aria-valuenow 与 width 恒一致 --- */
+check('nvui-api: progress 初始值与 setValue 共用 normalizeProgressValue（数值自愈）',
+    /function normalizeProgressValue\(/.test(apiSrc)
+    && /var initial = normalizeProgressValue\(opts\.value\)/.test(apiSrc)
+    && /var n = normalizeProgressValue\(v\)/.test(apiSrc)
+    && !/aria-valuenow':\s*String\(opts\.value \|\| 0\)/.test(apiSrc));
+check('nvui-api: progress 越界/NaN 被钳制到 [0,100]',
+    /if\s*\(!isFinite\(n\)\)\s*n\s*=\s*0\s*;/.test(apiSrc)
+    && /if\s*\(n\s*<\s*0\)\s*n\s*=\s*0\s*;/.test(apiSrc)
+    && /if\s*\(n\s*>\s*100\)\s*n\s*=\s*100\s*;/.test(apiSrc));
+
+/* --- 9.1g 输入类型白名单（NEW-05） --- */
+check('nvui-api: inputRow 的 type 走白名单（不在表内回退 text 并告警）',
+    /var INPUT_TYPES = \[/.test(apiSrc)
+    && /function normalizeInputType\(/.test(apiSrc)
+    && /warn\('inputRow\(\): 不支持的 type/.test(apiSrc)
+    && !/input\.type = opts\.type === 'number' \? 'number' : 'text';/.test(apiSrc));
+check('nvui-api: inputRow 保留 path 伪类型（DOM 仍是 text，样式走 is-path）',
+    /var KIT_INPUT_TYPES = \['path', 'textarea'\]/.test(apiSrc)
+    && /type === 'path' \? 'text' : type/.test(apiSrc));
+check('nvui-api: number 类型的 onChange 回传数字而非字符串',
+    /type === 'number'/.test(apiSrc)
+    && /opts\.onChange\(isFinite\(n\) \? n : 0\)/.test(apiSrc));
+check('nvui-api: inputRow 的 min/max/step 只接受有限数值',
+    /isFinite\(Number\(opts\.min\)\)/.test(apiSrc)
+    && /isFinite\(Number\(opts\.max\)\)/.test(apiSrc)
+    && /isFinite\(Number\(opts\.step\)\)/.test(apiSrc));
+
+/* --- 9.1h 吐司承载层（NEW-24）：关闭后必须能重新打开 --- */
+check('nvui-api: ensureToastLayer 命中已有层时会重新 show()（否则第二条起吐司全不可见）',
+    /function ensureToastLayer\(\)[\s\S]{0,600}if\s*\(layer\)\s*\{[\s\S]{0,400}if\s*\(!layer\.open\)[\s\S]{0,200}layer\.show\(\)/.test(apiSrc),
+    apiSrc.match(/function ensureToastLayer\(\)[\s\S]{0,700}/)?.[0] || '');
+check('nvui-api: 吐司退场后不再关闭承载层（避免后续吐司落进 closed dialog）',
+    !/layer\.hidden = true;[\s\S]{0,200}layer\.close\(\)/.test(apiSrc));
+
+/* --- 9.1i 调试开关与日志（NEW-19 最小形态） --- */
+check('nvui-api: 导出 NVUI.config 调试开关（debug / logger）',
+    /config:\s*config/.test(apiSrc)
+    && /debug:\s*false/.test(apiSrc)
+    && /logger:/.test(apiSrc));
+check('nvui-api: 关键路径有可观测日志（debug 级 + 始终输出的 warn/error 级）',
+    /function debug\(/.test(apiSrc)
+    && /function warn\(/.test(apiSrc)
+    && /function error\(/.test(apiSrc)
+    && /console\.|logger\./.test(apiSrc));
+check('nvui-api: 异常路径必须报错而非静默（installHostModalWatcher 失败走 error 级）',
+    /error\('installHostModalWatcher\(\): 观察器不可用/.test(apiSrc));
+
+/* --- 9.1j 观察面收窄（NEW-07）与退场时长令牌化（NEW-17） --- */
+check('nvui-api: 宿主模态观察面已收窄（不再全文档 subtree+attributes 观察）',
+    !/observer\.observe\(document\.documentElement,\s*\{\s*subtree:\s*true,\s*attributes:\s*true/.test(apiSrc)
+    && /hostModalScanObserver\.observe\(document\.documentElement,\s*\{\s*childList:\s*true,\s*subtree:\s*true\s*\}\)/.test(apiSrc),
+    apiSrc.match(/function installHostModalWatcher\(\)[\s\S]{0,2200}/)?.[0] || '');
+check('nvui-api: 退场兜底时长从 --nvui-duration-base 令牌派生（不再硬编码 260）',
+    /function animationFallbackMs\(/.test(apiSrc)
+    && /getToken\('--nvui-duration-base'\)/.test(apiSrc)
+    && !/setTimeout\(finish,\s*260\)/.test(apiSrc)
+    && !/setTimeout\(done,\s*260\)/.test(apiSrc));
+
+/* --- 9.1k 指示器几何（NEW-08）：经 QA 实机证伪，确认「不修」，保持原实现 --- */
+check('nvui-api: syncTabsIndicator 保持原 offset* 读法（NEW-08 实机证伪：p95 帧间隔差 0.00ms，不改）',
+    /var x = active\.offsetLeft;/.test(apiSrc)
+    && /var w = active\.offsetWidth;/.test(apiSrc)
+    && /var h = active\.offsetHeight;/.test(apiSrc)
+    && !/active\.getBoundingClientRect\(\)/.test(apiSrc));
+
+/* --- 9.1l 空标签 / 非法 active 归一化（NEW-15） --- */
+check('nvui-api: active 归一化到确实存在的标签（否则回退第一个）',
+    /if\s*\(!matched\)[\s\S]{0,200}matched = tabs\[0\]/.test(apiSrc));
+check('nvui-api: addNode 找不到标签时回退到可见面板而非 body（NEW-15）',
+    /if \(domKey && panes\.get\(domKey\)\) pane = panes\.get\(domKey\);/.test(apiSrc)
+    && /else if \(activeDomNow && panes\.get\(activeDomNow\)\) pane = panes\.get\(activeDomNow\);/.test(apiSrc)
+    && /else if \(tabs\.length && panes\.get\(tabs\[0\]\.domKey\)\) pane = panes\.get\(tabs\[0\]\.domKey\);/.test(apiSrc)
+    && /if \(!pane\) pane = body;/.test(apiSrc)
+    && !/panes\[activeDom\] \|\| body/.test(apiSrc));
+
+/* --- 9.1m QA 实测补强（发现 A / D / E / F） --- */
+check('nvui-api: 重复 tab key 去重后加序号（避免 DOM id 重复）',
+    /while\s*\(domKeySet\.has\(domKey\)\)\s*\{[\s\S]{0,120}domKey = base \+ '-' \+ seq/.test(apiSrc));
+check('nvui-api: 重复 tab key 时对外 key 仍映射到第一个（不静默丢面板）',
+    /if\s*\(!keyMap\.has\(origKey\)\)\s*keyMap\.set\(origKey, domKey\)/.test(apiSrc));
+check('nvui-api: 原生 input 类型不被塌缩为 text（file/color/date 等保持原类型）',
+    /var INPUT_TYPES = \[[\s\S]{0,400}'file'/.test(apiSrc)
+    && /var domType = type === 'path' \? 'text' : type/.test(apiSrc));
+check('nvui-api: path 伪类型的 DOM 契约为 type="text" + .is-path（与 preview.html 手写 DOM 同构）',
+    /input\.setAttribute\('data-nvui-type', type\)/.test(apiSrc)
+    && /type === 'path' \? 'text' : type/.test(apiSrc)
+    && !/Object\.defineProperty\(input, 'type'/.test(apiSrc)
+    && !/get: function \(\) \{ return 'path'; \}/.test(apiSrc));
+check('nvui-api: inputRow 的 value 赋值带 try/catch（file 类型会抛 InvalidStateError）',
+    /try\s*\{\s*input\.value = opts\.value;\s*\}[\s\S]{0,200}catch/.test(apiSrc));
+check('nvui-api: 焦点归还末级兜底落到宿主可见可聚焦元素（绝不掉到 BODY）',
+    /function focusFirstVisible\(\)/.test(apiSrc)
+    && /isFocusable\(cand\)/.test(apiSrc)
+    && /focusFirstVisible\(\);/.test(apiSrc));
+check('nvui-api: 面板容器兜底前先判可见性（overlay 隐藏后 focus() 必然失败）',
+    /isFocusable\(panel\)/.test(apiSrc));
+check('nvui-api: 发现新 dialog 时主动同步宿主模态状态（open 属性早于观察器设置）',
+    /if \(sawDialog\) syncHostModalState\(\);/.test(apiSrc));
+
+/* --- 9.1n 追加修复（NEW-09 / NEW-16 / NEW-18 + 原型链隔离） --- */
+check('nvui-api: panes / keyMap / domKeySet 用 Map（无原型链 + O(1) 查表，NEW-09）',
+    /var panes = new Map\(\)/.test(apiSrc)
+    && /var keyMap = new Map\(\)/.test(apiSrc)
+    && /var domKeySet = new Map\(\)/.test(apiSrc)
+    && /panes\.get\(/ .test(apiSrc));
+check('nvui-api: 切 tab 只切换旧/新两个 pane（NEW-09：不再全量遍历）',
+    /var prevPane = panes\.get\(prevDom\)/.test(apiSrc)
+    && /if \(prevPane && prevPane !== nextPane\) prevPane\.classList\.remove\('is-active'\)/.test(apiSrc)
+    && /if \(nextPane\) nextPane\.classList\.add\('is-active'\)/.test(apiSrc)
+    && !/Object\.keys\(panes\)\.forEach/.test(apiSrc));
+check('nvui-api: 切 tab 前先保存上一个 domKey（否则旧 pane 无法移除 active）',
+    /var prevDom = activeDom;/.test(apiSrc)
+    && /activeDom = domKey;/.test(apiSrc));
+check('nvui-api: destroy() 先 dialog.close() 再摘节点（NEW-16：宿主能收到 close 事件）',
+    /function destroy\(\)[\s\S]{0,700}dialog\.close\(\)[\s\S]{0,300}removeChild\(dialog\)/.test(apiSrc));
+check('nvui-api: destroy() 把摘除推迟到 close 事件派发之后（NEW-16 残留：document 级委托监听也能收到 close）',
+    /* v2.9.0 起监听统一走 on()/off()（B2 活体计数），两种写法都算 */
+    /(?:dialog\.addEventListener\('close',\s*onClose\)|on\(dialog,\s*'close',\s*onClose\))/.test(apiSrc)
+    && /setTimeout\(remove,\s*0\)/.test(apiSrc)
+    /* 兜底路径必须存在：close 事件未派发时也要摘干净，不能让载体节点泄漏在 DOM 里 */
+    && /setTimeout\(remove,\s*50\)/.test(apiSrc)
+    && /catch \(err\) \{ remove\(\); \}/.test(apiSrc)
+    /* 摘除必须幂等：事件与兜底定时器都会触发它 */
+    && /var removed = false;/.test(apiSrc)
+    && /if \(removed\) return;/.test(apiSrc));
+check('nvui-api: 挂载点无效时降级并报错（NEW-18：不再抛 TypeError）',
+    /挂载点不可用/.test(apiSrc)
+    && /opts\.mount 不是有效节点，已回退到 document\.body/.test(apiSrc)
+    && !/\(opts\.mount \|\| document\.body\)\.appendChild\(dialog\)/.test(apiSrc));
+check('nvui-api: 挂载动作本身抛错时被吸收并返回 null（NEW-18 补充：异常不得穿透到调用方）',
+    /try \{\s*mountNode\.appendChild\(dialog\);\s*\} catch \(err\) \{[\s\S]{0,200}面板挂载失败/.test(apiSrc)
+    && /面板挂载失败[\s\S]{0,200}return null;/.test(apiSrc));
+
+/* --- 9.1o 第四轮（NEW-10 / NEW-11 / NEW-12 / NEW-13 / NEW-15 / NEW-20 / NEW-22） --- */
+check('nvui-api: getToken 带缓存（NEW-10：不再每次都 getComputedStyle）',
+    /var tokenCache = /.test(apiSrc)
+    && /function getToken\(name, scope\)[\s\S]{0,700}tokenCache\[key\]/.test(apiSrc)
+    && !/function getToken\(name, scope\) \{\s*if \(!isDomAvailable\(\)\) return '';\s*var host = scope \|\| document\.documentElement;\s*return getComputedStyle/.test(apiSrc));
+check('nvui-api: 令牌缓存键含 name 与 scope（不同作用域不串味）',
+    /var key = name \+ '\|' \+ tokenScopeId\(host\)/.test(apiSrc)
+    && /function tokenScopeId\(scope\)/.test(apiSrc));
+check('nvui-api: 令牌缓存带签名校验（class / 内联样式变化即重算，不读过期值）',
+    /var sig = \(host\.className \|\| ''\)/.test(apiSrc)
+    && /if \(hit && hit\.sig === sig\) return hit\.value;/.test(apiSrc));
+/* v2.9.0：setTheme 增了 auto 分支后函数体变长（原窗口 900 字符不够），
+   且 auto 路径的失效发生在 syncAutoTheme() 里 —— 两处都要断言，否则只测到显式分支。 */
+check('nvui-api: setTheme 后主动失效令牌缓存（NEW-10）',
+    /function setTheme\([\s\S]{0,2200}invalidateTokenCache\(\);/.test(apiSrc)
+    && /function syncAutoTheme\([\s\S]{0,400}invalidateTokenCache\(\);/.test(apiSrc)
+    && /function invalidateTokenCache\(\)/.test(apiSrc));
+check('nvui-api: 令牌缓存可被宿主手动失效（导出 invalidateTokenCache）',
+    /invalidateTokenCache:\s*invalidateTokenCache/.test(apiSrc));
+check('nvui-api: NEW-20 无残余 —— 除 el() 的白名单通道外，setAttribute 的属性名全是字面量',
+    (apiSrc.match(/setAttribute\(/g) || []).length
+    === (apiSrc.match(/setAttribute\('[a-zA-Z-]+'/g) || []).length
+        + (apiSrc.match(/setAttribute\(k, String\(v\)\)/g) || []).length,
+    (apiSrc.match(/setAttribute\((?!'[a-zA-Z-]+')(?!k, String\(v\))[^)]*\)/g) || []).join(' | '));
+check('nvui-api: el() 的属性白名单拒绝 on* / style / srcdoc / formaction（NEW-01 + NEW-20）',
+    /function attrAllowed\(key\)/.test(apiSrc)
+    && /lower\.indexOf\('on'\) === 0/.test(apiSrc)
+    && /lower === 'style'/.test(apiSrc)
+    && /'srcdoc'/.test(apiSrc)
+    && /'formaction'/.test(apiSrc)
+    && /if \(!attrAllowed\(k\)\) \{/.test(apiSrc));
+
+/* preview.html：NEW-11（resize 节流）/ NEW-12（吐司定时器清理） */
+const previewNew = readText(FILES.preview);
+check('preview.html: resize 监听改 requestAnimationFrame 合并（NEW-11：每帧至多一次）',
+    /function scheduleApiIndicatorSync\(\)[\s\S]{0,400}requestAnimationFrame/.test(previewNew)
+    && /window\.addEventListener\('resize', scheduleApiIndicatorSync\)/.test(previewNew)
+    && !/window\.addEventListener\('resize', function \(\) \{\s*if \(apiPanelCtl && typeof apiPanelCtl\.syncIndicator/.test(previewNew));
+check('preview.html: 吐司定时器 id 存在 toast 上并在 dismissToast 里清除（NEW-12）',
+    /toast\.__toastTimer = setTimeout\(/.test(previewNew)
+    && /if \(toast\.__toastTimer\) \{[\s\S]{0,120}clearTimeout\(toast\.__toastTimer\)/.test(previewNew));
+
+/* components.css：NEW-13（will-change 只加在两条 transform 扫光上） */
+const skeletonRuleN13 = (componentsClean.match(/\.nvui-skeleton::after\s*\{[^}]*\}/) || [''])[0];
+const progressBarRuleN13 = (componentsClean.match(/\.nvui-progress-bar::after\s*\{[^}]*\}/) || [''])[0];
+check('components.css: 骨架屏与进度条扫光加 will-change: transform（NEW-13）',
+    /will-change:\s*transform/.test(skeletonRuleN13)
+    && /will-change:\s*transform/.test(progressBarRuleN13));
+check('components.css: will-change 只用 transform（不滥用），且未新增 !important',
+    (componentsClean.match(/will-change:\s*transform/g) || []).length === 2
+    && (componentsClean.match(/will-change:/g) || []).length === 2
+    && (componentsClean.match(/will-change:[^;]*!important/g) || []).length === 0);
+
+/* st-extension-template/index.js：NEW-22（getSettings 仅本地开发环境暴露） */
+const tplIndexSrc = readText(FILES.tplIndex);
+check('ST 模板: getSettings 仅在 localhost / 127.0.0.1 暴露（NEW-22）',
+    /isLocalDev/.test(tplIndexSrc)
+    && /'localhost'/.test(tplIndexSrc)
+    && /'127\.0\.0\.1'/.test(tplIndexSrc)
+    && /if \(isLocalDev\) \{[\s\S]{0,160}__MY_PLUGIN__\.getSettings/.test(tplIndexSrc));
+check('ST 模板: open 保持全量暴露（业务入口不因门禁而失效）',
+    /window\.__MY_PLUGIN__ = \{ open: openSettings \}/.test(tplIndexSrc));
+check('NEW-22 实机取证脚本存在（本地 / 非本地双场景门禁）',
+    fs.existsSync(path.join(KIT, 'test', 'probe', 'st-template-new22-check.js')));
+check('CHANGELOG 记录本批次（静态审查批次二 · 9 条中低危项，与 v2.4.0 同版本发布）',
+    /静态审查批次二（9 条中低危项）/.test(changelog)
+    && /NEW-09/.test(changelog) && /NEW-22/.test(changelog));
+check('CHANGELOG 的 path 伪类型描述符合裁决口径（DOM 契约不变，意图由 data-nvui-type 承载）',
+    /DOM 契约不变/.test(changelog)
+    && /input\.dataset\.nvuiType/.test(changelog)
+    && /input\.type` 读出的是真实的 DOM 类型/.test(changelog)
+    && !/input\.type\s*变为\s*[`']?path/.test(changelog)
+    && !/type\s*=\s*[`']path[`']/.test(changelog));
+check('README 记录新增公开导出 invalidateTokenCache（可选，API 速查表已列）',
+    /NVUI\.invalidateTokenCache\(\)/.test(readme)
+    && /invalidateTokenCache:\s*invalidateTokenCache/.test(apiSrc));
+
+/* --- 9.2 animationend 冒泡防护 --- */
+check('nvui-api: closeLayer 的 animationend 校验 event.target（防子动画冒泡截断退场）',
+    /function onAnimEnd\(event\)\s*\{[\s\S]{0,200}event\.target\s*!==\s*overlayEl/.test(apiSrc));
+check('nvui-api: 吐司 dismiss 的 animationend 校验 event.target',
+    /function onAnimEnd\(event\)[\s\S]{0,300}event\.target\s*!==\s*toast/.test(apiSrc));
+check('nvui-api: 退场兜底定时器在正常结束时被 clearTimeout（不留悬挂定时器）',
+    /clearTimeout\(fallback\)/.test(apiSrc));
+
+/* --- 9.3 document 级监听器泄漏 --- */
+check('nvui-api: Esc 走全局单例调度器（不为每个面板挂永久 document 监听器）',
+    /escapeStack/.test(apiSrc) && /registerEscapeHandler/.test(apiSrc));
+check('nvui-api: 单例调度器在最后一个面板注销后移除全局监听',
+    /(?:removeEventListener\('keydown',\s*onEscapeKey\)|off\(document,\s*'keydown',\s*onEscapeKey\))/.test(apiSrc));
+/* 反向断言不能用负向前瞻：`\s*` 会回溯到零空格，`(?!onEscapeKey)` 永远成立。
+   改为抓出所有 document 级 keydown 的处理函数名再逐个比对。 */
+const DOC_KEYDOWN_HANDLERS = (apiSrc.match(/on\(document,\s*'keydown',\s*([A-Za-z_$][\w$]*)/g) || [])
+    .map((line) => line.replace(/^[\s\S]*,\s*/, ''));
+check('nvui-api: createPanel 不再直接 on(document, "keydown")（document 级只允许单例挂 onEscapeKey）',
+    DOC_KEYDOWN_HANDLERS.every((h) => h === 'onEscapeKey'),
+    DOC_KEYDOWN_HANDLERS.join(', ') || '(none)');
+
+/* --- 9.4 id 唯一性 --- */
+check('nvui-api: 面板 id 走唯一化处理（防重复面板造成 id 冲突与 aria 指向错乱）',
+    /uniqueId\(/.test(apiSrc));
+check('nvui-api: 唯一化同时检查派生子 id（-layer/-overlay/-title）',
+    /base\s*\+\s*'-layer'/.test(apiSrc) && /base\s*\+\s*'-overlay'/.test(apiSrc));
+
+/* --- 9.5 destroy() 与焦点管理 --- */
+check('nvui-api: 面板提供 destroy() 清理 DOM 与监听器',
+    /destroy:\s*destroy/.test(apiSrc) && /function destroy\(\)/.test(apiSrc));
+check('nvui-api: 焦点归还支持 focusFallback 兜底（宿主菜单收起后触发元素不可聚焦）',
+    /focusFallback/.test(apiSrc) && /isFocusable/.test(apiSrc));
+check('nvui-api: 焦点归还前校验触发元素仍可聚焦',
+    /isFocusable\(opener\)/.test(apiSrc));
+check('nvui-api: 实现焦点陷阱（focus trap），使 aria-modal 声明成立',
+    /FOCUSABLE/.test(apiSrc) && /event\.key\s*!==\s*'Tab'/.test(apiSrc));
+
+/* --- 9.7 v2.5.0 布局持久化与面板头部标准化契约守卫 --- */
+
+/* 9.7a NVUI.clearLayoutState 导出与安全清理契约 */
+check('nvui-api: 导出 clearLayoutState 且空参/非法参调用幂等不抛错', (() => {
+    if (typeof nvuiApi.clearLayoutState !== 'function') return false;
+    try {
+        nvuiApi.clearLayoutState();
+        nvuiApi.clearLayoutState('');
+        nvuiApi.clearLayoutState(null);
+        return true;
+    } catch {
+        return false;
+    }
+})());
+
+check('nvui-api: clearLayoutState 沙箱前缀 nvui_state_ 且支持 storage.delete 与 storage.set 回退', (() => {
+    let deletedKey = null;
+    let setKey = null;
+    let setVal = 'init';
+    nvuiApi.clearLayoutState('test-panel-1', { delete: (k) => { deletedKey = k; } });
+    nvuiApi.clearLayoutState('test-panel-2', { set: (k, v) => { setKey = k; setVal = v; } });
+    return deletedKey === 'nvui_state_test-panel-1'
+        && setKey === 'nvui_state_test-panel-2'
+        && setVal === null;
+})());
+
+check('nvui-api: clearLayoutState 遇到 storage 抛错时安全吸收不穿透', (() => {
+    const orig = nvuiApi.config && nvuiApi.config.logger;
+    if (nvuiApi.config) nvuiApi.config.logger = { warn: () => {}, error: () => {}, log: () => {} };
+    try {
+        nvuiApi.clearLayoutState('err-panel', { delete: () => { throw new Error('storage failure'); } });
+        if (nvuiApi.config) nvuiApi.config.logger = orig;
+        return true;
+    } catch {
+        if (nvuiApi.config) nvuiApi.config.logger = orig;
+        return false;
+    }
+})());
+
+check('nvui-api: createPanel 控制器导出 clearLayoutState 实例清理方法',
+    /clearLayoutState:\s*persist\.clearLayout/.test(apiSrc));
+
+/* --- v2.6.0：折叠条接管入口（GitHub #11） --- */
+/* G-01：accordion 子系统抽出后入口变成 `acc.track`（成员表达式），
+ * 这里只断言「控制器上仍导出这两个入口」，不锁定具体实现形态；
+ * 行为契约由 test-issue-11-accordion.js 的 18 条 Chromium 回归覆盖。 */
+check('nvui-api: createPanel 控制器导出 trackAccordion / adoptAccordions（#11 公开入口）',
+    /trackAccordion:\s*[\w$][\w$.]*,/.test(apiSrc)
+    && /adoptAccordions:\s*[\w$][\w$.]*,/.test(apiSrc));
+check('nvui-api: 接管入口只挂在面板实例上（顶层 factory API 仍为 11 个，不扩张全局导出面）',
+    API_FUNCTIONS.length === 11
+    && typeof nvuiApi.trackAccordion === 'undefined'
+    && typeof nvuiApi.adoptAccordions === 'undefined');
+/* 行为契约（默认不绑点击 / 稳定键 / 幂等 / 跨面板边界 / destroy 解绑）由
+ * test/test-issue-11-accordion.js 的真实 Chromium 回归覆盖；
+ * 这里不做源码字符串镜像断言，避免阻碍内部实现重构。 */
+check('#11 浏览器回归脚本存在（test/test-issue-11-accordion.js，真实 DOM 注入场景）',
+    fs.existsSync(path.join(KIT, 'test', 'test-issue-11-accordion.js')));
+
+/* 9.7b opts.width 与 720px 黄金尺寸 & Viewport Clamping & 防抖 */
+check('nvui-api: 导出 clampPanelLayout 且默认采用 720px 黄金尺寸与 opts.width 自定义支持',
+    typeof nvuiApi.clampPanelLayout === 'function'
+    && /function clampPanelLayout\(savedSize,\s*savedPos,\s*options\)/.test(apiSrc)
+    && /fallbackW\s*=\s*\(options\s*&&[^)]*options\.width/.test(apiSrc)
+    && /720/.test(apiSrc));
+
+check('nvui-api: clampPanelLayout 离线/Node 安全（无 DOM 时返回默认安全结构）', (() => {
+    const res = nvuiApi.clampPanelLayout();
+    return res && res.isMobile === false && res.width === null && res.styleWidth === '';
+})());
+
+/* G-01 第二步：持久化子系统已抽成模块级 createPersistence(ctx)。
+ * 断言「语义仍在 + 边界已封装」，不再锁定它挂在 createPanel 内部。 */
+check('nvui-api: 状态持久化由 createPersistence 封装，内置 250ms 防抖与生命周期 flush 冲刷',
+    /function createPersistence\(ctx\)/.test(apiSrc)
+    && /PERSIST_DEBOUNCE_MS/.test(apiSrc)
+    && /function schedulePersistSave\b/.test(apiSrc)
+    && /function flushPersistSave\b/.test(apiSrc)
+    && /function cleanup\(\)/.test(apiSrc)
+    && /persist\.bootstrap\(\)/.test(apiSrc)
+    && /persist\.cleanup\(\)/.test(apiSrc));
+
+/* 9.7c 头部操作流规范排序与 themeToggle / onThemeChange */
+check('nvui-api: 头部操作流严格保证 [自定义 actions...] -> [themeToggle] -> [closeBtn] 顺序',
+    /actions\.appendChild\(themeToggleBtn\)[\s\S]*actions\.appendChild\(closeBtn\)/.test(apiSrc));
+
+check('nvui-api: 预置 themeToggle 支持日/月图标切换并联动 onThemeChange 与 themeToggle.onThemeChange 回调',
+    /themeToggleBtn\s*=\s*el\('button',\s*'nvui-icon-btn nvui-theme-toggle'/.test(apiSrc)
+    && /fa-solid fa-sun/.test(apiSrc)
+    && /fa-solid fa-moon/.test(apiSrc)
+    && /opts\.onThemeChange/.test(apiSrc)
+    && /opts\.themeToggle\.onThemeChange/.test(apiSrc));
+
+check('components.css: 包含 .nvui-theme-toggle 平滑过渡与 hover/active 态',
+    /\.nvui-theme-toggle/.test(componentsClean)
+    && /\.nvui-theme-toggle\s*i\s*\{[^}]*transition:/.test(componentsClean));
+
+/* 9.7d panel.showUpdate 动态接口、XSS 防护与 WAI-ARIA */
+check('nvui-api: createPanel 控制器导出 showUpdate 动态点亮接口',
+    /showUpdate:\s*updateCtl\.show/.test(apiSrc)
+    && /createUpdatePillController\(/.test(apiSrc)
+    && /function show\(updateConfig\)/.test(apiSrc));
+
+check('nvui-api: showUpdate 采用 textContent 防 XSS 且 url 校验 isSafeUrl',
+    /updatePill\.textContent\s*=\s*labelStr/.test(apiSrc)
+    && /isSafeUrl\(urlStr\)/.test(apiSrc));
+
+check('nvui-api: showUpdate 更新胶囊符合 WAI-ARIA 无障碍规范（role="button", tabindex="0", Enter/Space 键盘响应）',
+    /role:\s*'button'/.test(apiSrc)
+    && /tabindex:\s*'0'/.test(apiSrc)
+    && /e\.key\s*===\s*'Enter'/.test(apiSrc));
+
+check('components.css: 包含 .nvui-update-pill 扁平无描边与 --nvui-focus-ring 焦点环样式',
+    /\.nvui-update-pill\s*\{/.test(componentsClean)
+    && /\.nvui-update-pill:focus-visible\s*\{[^}]*--nvui-focus-ring/.test(componentsClean));
+
+/* --- 9.6 行为级断言（需要 DOM；无 DOM 时跳过） --- */
+const hasDom = typeof globalThis.document !== 'undefined' && typeof globalThis.document.createElement === 'function';
+if (!hasDom) {
+    console.log('[SKIP] 运行时行为断言需要 DOM（当前为 Node 环境，未执行）');
+} else {
+    // 说明：真正的 DOM 行为验证由 test/st-live-check.js 在真实 SillyTavern 宿主中执行。
+    console.log('[SKIP] DOM 行为断言交由 test/st-live-check.js（真实 ST 宿主）执行');
+}
+
+/* --- 9.7 复杂度冻结（G-01）：createPanel 不得继续膨胀 --- */
+/*
+ * 图谱实测：createPanel() 度 67，是全项目唯一枢纽。2026-11-16 P1-1 分七步拆：
+ *   第一步：accordion 子系统（15 个函数、283 行）→ createAccordionRegistry(ctx)，
+ *           函数体 1433 → 1162 行，嵌套函数 36 → 20 个；
+ *   第二步：持久化 / 视口钳制（7 个函数、332 行）→ createPersistence(ctx)，
+ *           函数体 1162 → 825 行，嵌套函数 20 → 14 个；
+ *   第三步：焦点链（4 个函数、88 行）→ createFocusChain(ctx)，
+ *           函数体 825 → 737 行，嵌套函数 14 → 10 个；
+ *   第四步：标签切换（2 个函数、54 行）→ createTabController(ctx)，并让该 factory
+ *           独占 activeDom，函数体 737 → 688 行，嵌套函数 10 → 8 个；
+ *   第五步：更新胶囊（1 个函数 + 3 份状态、95 行）→ createUpdatePillController(ctx)，
+ *           函数体 688 → 601 行，嵌套函数 8 → 7 个；
+ *   第六步：节点写入（2 个函数、62 行）→ createPaneWriter(ctx)，
+ *           函数体 601 → 569 行，嵌套函数 7 → 5 个；
+ *   第七步：玻璃模式（1 个函数 + 4 份状态、40 行）→ createGlassController(ctx)，
+ *           函数体 569 → 531 行，嵌套函数 5 → 4 个。
+ * 剩余 3 个嵌套函数（openPanel / closePanel / destroy）是面板对外的生命周期契约，
+ * 抽取需要 15 项能力的 ctx，耦合会重于收益，故**到此为止**（见 ISSUES.md G-01）。
+ * 阈值随重构下调，**只允许降不允许升**：需要新逻辑时先抽 factory，而不是放宽本条。
+ * 27 个导出成员已由 test/test-api-surface.js 的 EXPECTED_EXPORTS 冻结，此处不重复断言。
+ */
+const CREATE_PANEL_MAX_LINES = 531;
+const apiLines = apiSrc.split('\n');
+const cpStart = apiLines.findIndex((l) => /^\s*function createPanel\(/.test(l));
+const cpEnd = cpStart < 0 ? -1
+    : apiLines.findIndex((l, i) => i > cpStart && l.startsWith('    /*') && l.includes('吐司'));
+const cpLineCount = cpEnd > cpStart ? cpEnd - cpStart : -1;
+check('nvui-api: createPanel() 函数体不超过复杂度冻结上限（防单函数继续膨胀）',
+    cpStart >= 0 && cpEnd > cpStart && cpLineCount <= CREATE_PANEL_MAX_LINES,
+    `实测 ${cpLineCount} 行 / 上限 ${CREATE_PANEL_MAX_LINES} 行（L${cpStart + 1}–L${cpEnd}）`,
+    true);
+
+// ==================== 10. ST 扩展模板自洽 ====================
+console.log('\n=== 10. ST 扩展模板自洽 ===');
+const TPL = path.join(KIT, 'st-extension-template');
+const tplFiles = {
+    manifest: path.join(TPL, 'manifest.json'),
+    index: path.join(TPL, 'index.js'),
+    style: path.join(TPL, 'style.css'),
+    api: path.join(TPL, 'ui-kit', 'nvui-api.js'),
+    tokens: path.join(TPL, 'ui-kit', 'tokens.css'),
+    components: path.join(TPL, 'ui-kit', 'components.css'),
+};
+const tplMissing = Object.entries(tplFiles).filter(([, p]) => !fs.existsSync(p)).map(([, n]) => n);
+check('ST 模板目录完整（manifest.json / index.js / style.css / ui-kit/ 运行时）',
+    tplMissing.length === 0, tplMissing.join(', '));
+
+if (tplMissing.length === 0) {
+    const tplManifest = JSON.parse(fs.readFileSync(tplFiles.manifest, 'utf8'));
+    const tplIndex = readText(tplFiles.index);
+    const tplStyle = readText(tplFiles.style);
+
+    check('ST 模板 manifest 含 ST 必需字段（display_name/js/css/version/author/hooks）',
+        !!(tplManifest.display_name && tplManifest.js && tplManifest.css
+            && tplManifest.version && tplManifest.author && tplManifest.hooks));
+    check('ST 模板 manifest 声明 loading_order 与 hooks.activate',
+        typeof tplManifest.loading_order === 'number' && typeof tplManifest.hooks?.activate === 'string');
+    check('ST 模板 index.js 以 ES Module 导入宿主上下文',
+        /from '\.\.\/\.\.\/\.\.\/extensions\.js'/.test(tplIndex));
+    check('ST 模板 index.js 导入 NVUI 运行时（相对路径 ./ui-kit/nvui-api.js）',
+        /import '\.\/ui-kit\/nvui-api\.js'/.test(tplIndex));
+    check('ST 模板 index.js 使用 extension_settings 模块导出（非 window 全局）',
+        /extension_settings as extensionSettings/.test(tplIndex)
+        && !/ctx\.extension_settings\s*\?\?\s*window\.extension_settings/.test(tplIndex));
+    check('ST 模板 index.js 导出 manifest hooks 声明的 init',
+        /export function init\(\)/.test(tplIndex));
+    check('ST 模板 index.js 设置落盘走 saveSettingsDebounced',
+        /saveSettingsDebounced/.test(tplIndex));
+    check('ST 模板 index.js 声明焦点归还兜底 focusFallback',
+        /focusFallback/.test(tplIndex));
+    check('ST 模板 style.css 顶部 @import 引入 kit 令牌与组件（且在所有规则之前）',
+        /@import url\('\.\/ui-kit\/tokens\.css'\);/.test(tplStyle)
+        && /@import url\('\.\/ui-kit\/components\.css'\);/.test(tplStyle)
+        && tplStyle.indexOf('@import') < tplStyle.search(/[^\s@][^\n]*\{/));
+    check('ST 模板 style.css 不硬编码颜色字面量',
+        !/#[0-9a-fA-F]{3,8}\b/.test(tplStyle.replace(/\/\*[\s\S]*?\*\//g, '')));
+    check('ST 模板内嵌的 nvui-api.js 与仓库根版本一致（防模板漂移）',
+        readText(tplFiles.api) === apiSrc);
+    check('README 记录 ST 扩展模板目录与 focusFallback / destroy 新增能力',
+        readme.includes('st-extension-template')
+        && readme.includes('focusFallback')
+        && readme.includes('destroy()'));
+    check('AI-GUIDE 记录 ST 扩展模板与焦点归还兜底',
+        readText(FILES.aiGuide).includes('st-extension-template')
+        && readText(FILES.aiGuide).includes('focusFallback'));
+}
 
 // ==================== 汇总 ====================
 console.log(`\n=== UI Kit 规范测试结果: 通过 ${pass}, 失败 ${fail} ===`);
