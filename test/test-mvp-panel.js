@@ -67,7 +67,7 @@ const faFallback = faCssPath ? '' : `
 
 /* ---------- 从 index.js 抽取真实实现（函数 + 常量对象） ---------- */
 function extractFn(name) {
-    const m = src.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+    const m = src.match(new RegExp(`function ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}`));
     return m ? m[0] : `/* ${name}: 缺失 */`;
 }
 function extractConst(name, re) {
@@ -90,15 +90,18 @@ const FNS = [
     'buildNovelText', 'composeNovelExport', 'getCurrentChatLog',
     'isAuxiliaryTag', 'scanChatTags', 'toggleTagMembership',
     'faIcon', 'createPanelHeading', 'createStatusLineRow', 'createSegmented', 'createTagField',
-    'createTagDetector',
+    'createTagDetector', 'createFilterPreview', 'createRangeExport', 'getRangeChapters',
     'bindBottomNavArrowKeys', 'guardOverlayClick', 'buildNovelPanel',
+    'getChatKey', 'isNovelGenerating',
+    'getNovelOverrides', 'getEffectiveSettings', 'persistNovelOverrides', 'setNovelOverrideEnabled', 'setNovelFilterSettings',
     'formatExportTime', 'updateExportStatusLine', 'exportNovelText', 'applyNovelUIRefresh',
     'injectWandEntry', 'syncWandEntryState'
 ].map(extractFn).join('\n\n');
 
 const PAGE_SRC = [
     extractConstObj('DEFAULT_SETTINGS'),
-    'const cleanTextCache = { sig: \'\', map: new Map() };',
+    extractConst('cleanTextCache', /const cleanTextCache = new WeakMap\(\);/),
+    extractConst('messageTagCache', /const messageTagCache = new WeakMap\(\);/),
     extractConst('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
     extractConst('SCAN_IGNORE_TAGS', /const SCAN_IGNORE_TAGS = new Set\([\s\S]*?\n\]\);/),
     extractConst('AUX_WORDS', /const AUX_WORDS = new Set\([^;]*\);/),
@@ -138,8 +141,10 @@ function __chatLog() {
 // 模块级状态（与 index.js 同名同形）
 let novelPanel = null;
 let uiRefs = {};
-let lastExport = { bookTitle: '', fileName: '', chapterCount: 0, time: null };
-let lastChatLogRef = null;
+let generation = null, stoppedReply = null;
+const recentExports = new Map();
+const stRuntime = {};
+function getStContext() { return ctx; }
 function getSettings() { return __settings; }
 function saveSettingsDebounced() { __savedCount++; }
 
@@ -148,6 +153,8 @@ const built = buildNovelPanel({
     defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
     scanTags: function () { return scanChatTags(ctx.chat); },
     save: function () { __savedCount++; },
+    setFilters: setNovelFilterSettings,
+    setOverride: setNovelOverrideEnabled,
     // 与生产一致：refreshStatus 即 applyNovelUIRefresh（计数器只作附加观测）。
     // 早期版本桩成纯计数器，导致检测器摘要 / chips 刷新链在测试里根本不走——保真度缺口。
     refreshStatus: function () { __refreshCount++; applyNovelUIRefresh(); },
@@ -512,6 +519,218 @@ function checkTrue(name, cond) {
     else { fail++; failList.push(name); console.error(`[FAIL] ${name}`); }
 }
 
+const HOST_MODULE = `
+    export const chat = [], characters = [{ name: '艾莉丝' }];
+    export const this_chid = 0;
+    export const saveSettingsDebounced = () => {};
+    export const event_types = Object.fromEntries([
+        'MESSAGE_RECEIVED', 'MESSAGE_DELETED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED', 'CHAT_CHANGED',
+        'GENERATION_STARTED', 'GENERATION_ENDED', 'GENERATION_STOPPED',
+        'GROUP_WRAPPER_STARTED', 'GROUP_WRAPPER_FINISHED'
+    ].map((name) => [name, name]));
+    const listeners = new Map();
+    export const eventSource = {
+        on: (name, fn) => listeners.set(name, fn),
+        emit: (name, ...args) => listeners.get(name)?.(...args)
+    };
+    let chatId = 'A', groupId = null, characterId = 0, busy = false, streamingProcessor;
+    const metadata = new Map();
+    const downloads = [];
+    const blobUrl = URL.createObjectURL;
+    URL.createObjectURL = (blob) => {
+        downloads.push(blob);
+        return blobUrl.call(URL, blob);
+    };
+    export const isGenerating = () => busy;
+    let saves = 0;
+    window.__host = {
+        chat, downloads, emit: eventSource.emit,
+        busy: (state) => { busy = state; },
+        stream: (processor) => { streamingProcessor = processor; },
+        setActor: (id) => { characterId = id; },
+        setChat(id, messages, group = null) {
+            chatId = id;
+            groupId = group;
+            characterId = 0;
+            if (!metadata.has(id)) metadata.set(id, { title: id });
+            chat.splice(0, chat.length, ...messages);
+            eventSource.emit('CHAT_CHANGED', id);
+        },
+        context: () => ({
+            chat, chatId, groupId, characterId, characters, streamingProcessor,
+            groups: [{ id: 1, name: '测试群组' }],
+            chatMetadata: metadata.get(chatId),
+            saveMetadataDebounced: () => { saves++; }
+        }),
+        saves: () => saves,
+        texts: () => Promise.all(downloads.map((blob) => blob.text()))
+    };
+    window.__host.setChat('A', []);
+`;
+
+async function checkChatWorkflow(page) {
+    const host = (fn) => page.evaluate(fn);
+    const footer = page.locator('.nvui-panel-footer .is-primary');
+    const clickTab = (name) => page.locator('.nvui-tab[data-tab="' + name + '"]').click();
+    const openAcc = (title) => page.getByRole('button', { name: new RegExp(title) }).click();
+    await host(() => {
+        let reads = 0;
+        const h = window.__host;
+        h.setChat('A', [{ is_user: true, mes: '开始。' }, { get mes() { reads++; return '<story>隐藏面板测试</story>'; } }]);
+        h.emit('MESSAGE_RECEIVED', 1);
+        window.__novelClosedReads = () => reads;
+    });
+    await page.waitForTimeout(350);
+    check('关闭面板时跳过正文处理和标签扫描', await host(() => window.__novelClosedReads()), 0);
+    await page.evaluate(() => { document.getElementById('extensionsMenu').hidden = false; });
+    await page.locator('#novel-wand-menu-item').click();
+    await host(() => window.__host.setChat('A', [
+        { is_user: false, mes: '问候语。' }, { is_user: true, mes: '开始。' },
+        { is_user: false, mes: '<story>正文一。</story><summary>摘要一。</summary>' },
+        { is_user: true, mes: '下一轮。' }, { is_user: false, mes: '已删除的旧回复。' }
+    ]));
+    await host(() => {
+        const h = window.__host;
+        h.chat.splice(3);
+        h.emit('MESSAGE_DELETED', h.chat.length);
+        // 在刷新防抖执行前通过真实下载按钮导出。
+        document.querySelector('.nvui-panel-footer .is-primary').click();
+    });
+    let texts = await host(() => window.__host.texts());
+    checkTrue('删除整轮后立即导出，旧回复为零', texts.length === 1 && !texts[0].includes('已删除的旧回复'));
+    await host(() => {
+        const h = window.__host;
+        h.busy(true);
+        h.emit('GENERATION_STARTED', 'regenerate');
+        h.chat[2].mes = '半截生成';
+        document.querySelector('.nvui-panel-footer .is-primary').click();
+    });
+    await page.waitForFunction(() => document.querySelector('.nvui-panel-footer .is-primary').disabled);
+    checkTrue('生成中禁用导出按钮', await footer.isDisabled());
+    check('生成中禁止半截下载', await host(() => window.__host.downloads.length), 1);
+    await host(() => {
+        const h = window.__host;
+        h.busy(false);
+        h.emit('GENERATION_STOPPED');
+        h.emit('GENERATION_ENDED');
+    });
+    await footer.click();
+    checkTrue('停止生成后导出宿主保留内容', (await host(() => window.__host.texts())).at(-1).includes('半截生成'));
+    checkTrue('停止生成的导出包含提示', (await page.locator('.nvui-toast').allTextContents()).some((t) => t.includes('包含生成中断时保留的回复')));
+    await host(() => {
+        const h = window.__host;
+        h.busy(true);
+        h.emit('GENERATION_STARTED', 'regenerate');
+        h.chat.splice(2);
+        h.emit('MESSAGE_DELETED', h.chat.length);
+        h.chat.push({ mes: '本次 Roll 成功。' });
+        h.busy(false);
+        h.emit('MESSAGE_RECEIVED', 2, 'regenerate');
+        h.emit('GENERATION_ENDED');
+    });
+    await footer.click();
+    texts = await host(() => window.__host.texts());
+    checkTrue('Roll 完成后只导出新回复', texts.at(-1).includes('本次 Roll 成功。') && !texts.at(-1).includes('半截生成'));
+    await host(() => {
+        const h = window.__host;
+        h.busy(true);
+        h.emit('GENERATION_STARTED', 'regenerate');
+        h.chat[2].mes = '失败后保留的回复。';
+        h.busy(false);
+        h.stream({ isStopped: true });
+        h.emit('GENERATION_ENDED');
+        h.stream(undefined);
+    });
+    await footer.click();
+    checkTrue('流式失败后按宿主保留的回复导出', (await host(() => window.__host.texts())).at(-1).includes('失败后保留的回复。'));
+    await host(() => {
+        const h = window.__host;
+        h.chat[2].mes = '<story>当前分支。</story><summary>摘要一。</summary>';
+        h.emit('MESSAGE_SWIPED', 2);
+    });
+    await clickTab('filter');
+    await openAcc('过滤预览');
+    await page.locator('#novel-preview-floor').selectOption('2');
+    checkTrue('预览显示当前分支的原文', (await page.locator('[data-kind="source"] pre').textContent()).includes('<story>当前分支'));
+    await openAcc('正文白名单');
+    const include = page.locator('#novel-include-tags');
+    const override = page.getByRole('checkbox', { name: '为当前会话单独设置过滤和主角对白' });
+    await override.check();
+    await include.fill('story');
+    check('修改会话规则后预览立即匹配分支', (await page.locator('[data-kind="chapter"] pre').textContent()).trim(), '当前分支。');
+    check('规则写入会话元数据', await host(() => window.__host.context().chatMetadata.novelStreamFilters.include_tags), 'story');
+    await include.press('Tab');
+    checkTrue('会话规则请求宿主保存', await host(() => window.__host.saves()) > 0);
+
+    await clickTab('file');
+    await openAcc('按章节范围导出');
+    const from = page.getByRole('spinbutton', { name: '起始章节' });
+    const to = page.getByRole('spinbutton', { name: '结束章节' });
+    const range = page.getByRole('button', { name: '下载所选章节' });
+    await from.fill('2');
+    await to.fill('2');
+    await range.click();
+    texts = await host(() => window.__host.texts());
+    checkTrue('范围导出保留第 2 章并匹配预览', texts.at(-1).includes('第 2 章') && texts.at(-1).includes('当前分支。')
+        && !texts.at(-1).includes('问候语。') && !texts.at(-1).includes('摘要一。'));
+    await host(() => {
+        const h = window.__host;
+        h.chat[2].mes = '<story>更新的分支。</story>';
+        h.emit('MESSAGE_SWIPED', 2);
+        [...document.querySelectorAll('button')].find((button) => button.textContent === '下载所选章节').click();
+    });
+    check('防抖期间也不能导出已经失效的范围', await host(() => window.__host.downloads.length), texts.length);
+    await page.getByRole('button', { name: '确认更新后的范围' }).click();
+    await range.click();
+    checkTrue('确认更新后的范围即可导出当前内容', (await host(() => window.__host.texts())).at(-1).includes('更新的分支。'));
+
+    await host(() => {
+        const h = window.__host;
+        h.busy(true);
+        h.emit('GENERATION_STARTED', 'regenerate');
+        h.setChat('B', [{ is_user: true, mes: '开始。' }, { mes: 'B 会话正文。' }], 1);
+        h.emit('GENERATION_ENDED');
+    });
+    await footer.click();
+    checkTrue('切到 B 会话不受 A 的迟到事件阻塞', (await host(() => window.__host.texts())).at(-1).includes('B 会话正文。'));
+    await host(() => {
+        const h = window.__host;
+        h.emit('GROUP_WRAPPER_STARTED', { type: 'normal' });
+        h.setActor(1);
+    });
+    const count = await host(() => window.__host.downloads.length);
+    await page.waitForFunction(() => document.querySelector('.nvui-panel-footer .is-primary').disabled);
+    await footer.evaluate((button) => button.click());
+    check('群聊切换发言成员后仍阻止生成中导出', await host(() => window.__host.downloads.length), count);
+    await host(() => {
+        const h = window.__host;
+        h.busy(false);
+        h.emit('GROUP_WRAPPER_FINISHED');
+    });
+    await clickTab('filter');
+    check('B 会话继承全局白名单', await include.inputValue(), '');
+    await host(() => window.__host.setChat('A', [{ is_user: true, mes: '开始。' }, { mes: '<story>回到 A。</story>' }]));
+    check('切回 A 会话恢复之前的规则', await include.inputValue(), 'story');
+    await override.uncheck();
+    check('恢复继承后移除会话规则', await host(() => typeof window.__host.context().chatMetadata.novelStreamFilters), 'undefined');
+    await page.locator('#novel-preview-floor').selectOption('1');
+    await host(() => {
+        const h = window.__host;
+        h.chat.splice(1);
+        h.emit('MESSAGE_DELETED', h.chat.length);
+    });
+    await page.locator('.novel-preview [role="status"]').getByText(/已删除或被替换/).waitFor({ timeout: 5000 });
+    check('预览选中的楼层被删除后明确提示', await page.locator('#novel-preview-floor').inputValue(), '0');
+    await host(() => {
+        const h = window.__host;
+        h.chat.splice(0);
+        h.emit('MESSAGE_DELETED', h.chat.length);
+    });
+    const endingCount = await host(() => window.__host.downloads.length);
+    await footer.click();
+    check('删除最后一条用户消息后不产生下载', await host(() => window.__host.downloads.length), endingCount);
+}
+
 async function checkAssetStartup(browser, offline) {
     const page = await browser.newPage();
     const host = 'https://novel-stream.test';
@@ -552,8 +771,8 @@ async function checkAssetStartup(browser, offline) {
         }
         const modules = {
             [`${extension}/index.js`]: src,
-            '/scripts/extensions.js': 'export const extension_settings = {}; export const getContext = () => ({});',
-            '/script.js': 'export const eventSource = null, event_types = null, saveSettingsDebounced = () => {}, chat = [], characters = [], this_chid = null;'
+            '/scripts/extensions.js': "import '/script.js'; export const extension_settings = {}; export const getContext = () => window.__host.context();",
+            '/script.js': HOST_MODULE
         };
         if (modules[pathname]) {
             return route.fulfill({ contentType: 'application/javascript', body: modules[pathname] });
@@ -578,6 +797,7 @@ async function checkAssetStartup(browser, offline) {
         await page.keyboard.press('Escape');
         await page.waitForFunction(() => document.activeElement.id === 'extensionsMenuButton', undefined, { timeout: 5000 });
         check(`${label}：菜单项隐藏时焦点归还魔法棒按钮`, await page.evaluate(() => document.activeElement.id), 'extensionsMenuButton');
+        if (!offline) await checkChatWorkflow(page);
         check(`${label}：模块启动和导出反馈无运行报错`, errors.join(' | '), '');
     } finally {
         await page.close();
@@ -629,25 +849,25 @@ async function checkAssetStartup(browser, offline) {
         console.log('\n=== ③ 内容排布（design.md §1.4）===');
         const heads = await dpage.evaluate(() => window.__api.headings());
         check('三个分区 heading 标题', heads.map((h) => h.title).join('|'), '连载设置|过滤设置|文件与导出');
-        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.2.0|v2.2.0|v2.2.0');
+        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.3.0|v2.3.0|v2.3.0');
         checkTrue('heading 均带 FA 图标', heads.every((h) => h.icon));
         check('连载 pane 子元素顺序（heading→状态行→feature开关→3 折叠组）',
             (await dpage.evaluate(() => window.__api.serialChildren())).join('|'),
             'nvui-panel-heading|nvui-status-line novel-status-line|nvui-switch-row is-feature|nvui-acc|nvui-acc|nvui-acc');
-        check('过滤 pane 子元素顺序（heading→3 折叠组：检测器/白/黑）',
+        check('过滤 pane 子元素顺序（标题、会话设置、检测器、白名单、黑名单、预览）',
             (await dpage.evaluate(() => window.__api.filterChildren())).join('|'),
-            'nvui-panel-heading|nvui-acc|nvui-acc|nvui-acc');
-        check('文件 pane 子元素顺序（heading→2 折叠组）',
+            'nvui-panel-heading|nvui-switch-row|nvui-acc|nvui-acc|nvui-acc|nvui-acc');
+        check('文件 pane 子元素顺序（标题、命名、整本导出、范围导出）',
             (await dpage.evaluate(() => window.__api.fileChildren())).join('|'),
-            'nvui-panel-heading|nvui-acc|nvui-acc');
+            'nvui-panel-heading|nvui-acc|nvui-acc|nvui-acc');
 
         const switches = await dpage.evaluate(() => window.__api.switchRows());
-        check('开关行总数（连载总开关 + 缩进 + 主角对白）', switches.length, 3);
+        check('开关行总数（连载总开关、缩进、主角对白、会话覆盖）', switches.length, 4);
         checkTrue('恰好 1 条 is-feature（Kit §12.8「最多 1 条」）', switches.filter((s) => s.feature).length === 1);
         checkTrue('feature 开关 label 包裹 input（整行可点）', switches.every((s) => s.wrapsInput));
 
         const accs = await dpage.evaluate(() => window.__api.accs());
-        check('折叠组数量（连载 3 + 过滤 3 + 文件 2）', accs.length, 8);
+        check('折叠组数量（连载 3 + 过滤 4 + 文件 3）', accs.length, 10);
         checkTrue('每个折叠组都有 summary（收起态唯一线索）', accs.every((a) => a.summary.length > 0));
         checkTrue('每个折叠组标题都带图标', accs.every((a) => a.hasIcon));
         check('默认全部收起（acc_open 为空）', await dpage.evaluate(() => window.__api.storedAccOpen()), '');
@@ -870,6 +1090,7 @@ async function checkAssetStartup(browser, offline) {
         checkTrue('守卫窗口过后遮罩点击生效', (await dpage.evaluate(() => window.__api.openState())).hidden === true);
 
         console.log('\n=== ⑩ AC-15 状态行四态 + 切聊天重算 ===');
+        await dpage.evaluate(() => window.__api.open());
         await dpage.evaluate(() => window.__api.setChat([
             { is_user: true, name: '你', mes: '我们该出发了。' },
             { is_user: false, name: '艾莉丝', mes: '清晨的微风穿过树林。' },
@@ -1000,6 +1221,11 @@ async function checkAssetStartup(browser, offline) {
         await mpage.touchscreen.tap(mrect2.x, mrect2.y); // 真实触屏点击
         await mpage.waitForTimeout(80);
         check('触屏点「白」入白名单', await mpage.evaluate(() => window.__api.settings().include_tags), 'story');
+        await mpage.evaluate(() => window.__api.clickAcc('过滤预览'));
+        const previewView = mpage.getByRole('combobox', { name: '预览内容' });
+        await previewView.selectOption('chapter');
+        checkTrue('手机预览可切换到入书正文', await mpage.locator('.novel-preview [data-kind="chapter"]').isVisible());
+        checkTrue('手机切换后隐藏原文列', !(await mpage.locator('.novel-preview [data-kind="source"]').isVisible()));
 
         check('移动端全程无运行报错', mobileErrors.length === 0 ? 'none' : mobileErrors.join(' | '), 'none');
         await mctx.close();

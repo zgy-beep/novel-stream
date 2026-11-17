@@ -35,16 +35,16 @@ const ENGINE = [
     extract('DEFAULT_SETTINGS', /const DEFAULT_SETTINGS = \{[\s\S]*?\n\};/),
     extract('parseTagList', /function parseTagList\(str\) \{[\s\S]*?\n\}/),
     extract('cleanNovelText', /function cleanNovelText\(rawText, settings = \{\}\) \{[\s\S]*?\n\}/),
-    extract('cleanTextCache', /const cleanTextCache = \{ sig: '', map: new Map\(\) \};/),
+    extract('cleanTextCache', /const cleanTextCache = new WeakMap\(\);/),
     extract('getCleanMessageSig', /function getCleanMessageSig\(settings\) \{[\s\S]*?\n\}/),
-    extract('getCleanedMessage', /function getCleanedMessage\(msg, index, settings\) \{[\s\S]*?\n\}/),
+    extract('getCleanedMessage', /function getCleanedMessage\(msg, settings, sig\) \{[\s\S]*?\n\}/),
     extract('chatHasUserMessage', /function chatHasUserMessage\(chatLog\) \{[\s\S]*?\n\}/),
     extract('computeChapters', /function computeChapters\(settings, chatLog\) \{[\s\S]*?\n\}/),
     extract('computeChapterMap', /function computeChapterMap\(settings, chatLog\) \{[\s\S]*?\n\}/)
 ].join('\n\n');
 
-const { computeChapters, computeChapterMap } = new Function(
-    ENGINE + '\nreturn { computeChapters, computeChapterMap };'
+const { computeChapters, computeChapterMap, cleanTextCache } = new Function(
+    ENGINE + '\nreturn { computeChapters, computeChapterMap, cleanTextCache };'
 )();
 
 let passCount = 0;
@@ -168,6 +168,20 @@ assertDeepEqual(computeChapterMap(baseSettings, null), {}, '测试 7.2: 非数�
     assert(first !== second, '测试 8.1: 改写 mes 后重新派生（缓存不失真）');
     assert(second.indexOf('重新生成后的全新结尾。') >= 0, '测试 8.2: 新派生结果包含最新内容');
     assert(second.indexOf('第一次生成的结尾。') < 0, '测试 8.3: 旧内容无残留');
+}
+
+{
+    const retained = { mes: '<status>状态</status>保留正文。' };
+    const chatLog = [{ is_user: true, mes: '开始' }, { mes: '会删除的消息。' }, retained];
+    computeChapters(baseSettings, chatLog);
+    const before = cleanTextCache.get(retained);
+    chatLog.splice(1, 1);
+    const [chapter] = computeChapters(baseSettings, chatLog);
+    assert(chapter.index === 1 && chapter.no === 1 && cleanTextCache.get(retained) === before,
+        '中间楼层删除后保留消息更新编号并复用清洗结果');
+    const [unfiltered] = computeChapters({ ...baseSettings, exclude_tags: '' }, chatLog);
+    assert(unfiltered.text.includes('状态') && cleanTextCache.get(retained) !== before,
+        '更换过滤规则后不能复用原来的清洗结果');
 }
 
 console.log(`\n=== 章节派生测试结果: 通过: ${passCount}, 失败: ${failCount} ===`);

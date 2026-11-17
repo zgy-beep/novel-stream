@@ -32,6 +32,7 @@ const ENGINE = [
     extract('AUX_WORDS', /const AUX_WORDS = new Set\([^;]*\);/),
     extract('isAuxiliaryTag', /function isAuxiliaryTag\(tagName\) \{[\s\S]*?\n\}/),
     extract('parseTagList', /function parseTagList\(str\) \{[\s\S]*?\n\}/),
+    extract('messageTagCache', /const messageTagCache = new WeakMap\(\);/),
     extract('scanChatTags', /function scanChatTags\(chatLog\) \{[\s\S]*?\n\}/),
     extract('toggleTagMembership', /function toggleTagMembership\([^)]*\) \{[\s\S]*?\n\}/)
 ].join('\n\n');
@@ -58,6 +59,16 @@ function check(name, actual, expected) {
 /* ---------- scanChatTags：计数与跳过规则 ---------- */
 check('非数组输入返回空', scanChatTags(null), { tags: [], total: 0 });
 check('空聊天返回空', scanChatTags([]), { tags: [], total: 0 });
+
+const live = { mes: '<story>原回复</story>' };
+const removed = { mes: '<note>将删除</note>' };
+const changedChat = [live, removed];
+scanChatTags(changedChat);
+live.mes = '<think>改写后的回复</think>';
+changedChat.pop();
+check('编辑和删除后标签统计使用当前消息', scanChatTags(changedChat).tags, [
+    { tag: 'think', count: 1, auxiliary: true }
+]);
 
 const basic = scanChatTags([
     { mes: '<story>第一段</story><status>HP: 100</status>' },
