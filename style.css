@@ -198,6 +198,10 @@
     display: none;
 }
 
+.novel-generation-notice:not(:empty) {
+    padding: var(--nvui-space-2) var(--nvui-space-4);
+}
+
 @media (max-width: 600px) {
     .novel-preview-view {
         display: block;

@@ -33,11 +33,13 @@ const ENGINE = [
     extract('getCleanMessageSig', /function getCleanMessageSig\(settings\) \{[\s\S]*?\n\}/),
     extract('getCleanedMessage', /function getCleanedMessage\(msg, settings, sig\) \{[\s\S]*?\n\}/),
     extract('chatHasUserMessage', /function chatHasUserMessage\(chatLog\) \{[\s\S]*?\n\}/),
+    extract('interruptedStreamPlaceholders', /const interruptedStreamPlaceholders = new WeakMap\(\);/),
+    extract('isInterruptedStreamPlaceholder', /function isInterruptedStreamPlaceholder\(message\) \{[\s\S]*?\n\}/),
     extract('computeChapters', /function computeChapters\(settings, chatLog\) \{[\s\S]*?\n\}/),
-    extract('sanitizeFilename', /function sanitizeFilename\(rawName\) \{[\s\S]*?\n\}/),
+    extract('sanitizeFilename', /function sanitizeFilename\([^\n]*\) \{[\s\S]*?\n\}/),
     extract('getAccountPrefix', /function getAccountPrefix\(\) \{[\s\S]*?\n\}/),
     extract('getBookTitle', /function getBookTitle\(settings, speakerName = ''\) \{[\s\S]*?\n\}/),
-    extract('getBookFileName', /function getBookFileName\(settings\) \{[\s\S]*?\n\}/),
+    extract('getBookFileName', /function getBookFileName\([^\n]*\) \{[\s\S]*?\n\}/),
     extract('buildNovelText', /function buildNovelText\([^\n]*\) \{[\s\S]*?\n\}/),
     extract('composeNovelExport', /function composeNovelExport\([^\n]*\) \{[\s\S]*?\n\}/)
 ].join('\n\n') + '\nfunction getStContext() { return ctx; }';
@@ -129,7 +131,33 @@ check('保留设备名 CON 加后缀', sanitizeFilename('CON'), 'CON_novel');
 check('保留设备名 com1 加后缀（大小写不敏感）', sanitizeFilename('com1'), 'com1_novel');
 check('空串回退默认书名', sanitizeFilename(''), '我的小说连载');
 check('null 回退默认书名', sanitizeFilename(null), '我的小说连载');
-check('超长名截断到 150 字符', sanitizeFilename('长'.repeat(300)).length, 150);
+check('长 ASCII 名截断到 150 字符', sanitizeFilename('a'.repeat(300)).length, 150);
+check('长中文名按 UTF-8 字节截断', Buffer.byteLength(sanitizeFilename('长'.repeat(300))), 255);
+check('保留设备名带已有扩展名时仍改写', sanitizeFilename('CON.序章'), 'CON_novel.序章');
+check('设备名的上标数字也被改写', sanitizeFilename('COM¹.序章'), 'COM¹_novel.序章');
+check('控制字符不会进入文件名', sanitizeFilename('序\u0000章'), '序 章');
+
+{
+    const title = ctxStub.chatMetadata.title;
+    ctxStub.chatMetadata.title = '长🙂'.repeat(100);
+    const full = getBookFileName(mk());
+    const ranged = getBookFileName(mk(), { start: 123, end: 456 });
+    check('整本文件名连同扩展名不超过 255 字节', Buffer.byteLength(full) <= 255, true);
+    check('范围导出为完整后缀留出空间', Buffer.byteLength(ranged) <= 255 && ranged.endsWith(' - 第 123-456 章.txt'), true);
+    check('长度截断不切开表情', [...ranged].every((char) => char.length === 2 || !/[\ud800-\udfff]/.test(char)), true);
+    ctxStub.chatMetadata.title = '第一部分\r\n第二部分';
+    const messages = [
+        { mes: '前置系统提示', is_system: true },
+        { mes: '开始。', is_user: true },
+        { mes: '第一段\u0000。\r第二段。', name: '艾莉丝\n旁白' },
+        { mes: '工具 JSON', is_system: true }
+    ];
+    const out = composeNovelExport(mk({ include_user_dialogue: false }), messages);
+    check('书名、章标题和正文的真实 UTF-8 字节', Buffer.from(out.text).toString('hex'),
+        Buffer.from('\uFEFF《艾莉丝 - 第一部分 第二部分》\n\n第 1 章 · 艾莉丝 旁白 (原楼层: 3)\n\n第一段。\n\n第二段。\n\n\n').toString('hex'));
+    check('系统与工具消息不占章', out.chapterCount, 1);
+    ctxStub.chatMetadata.title = title;
+}
 
 console.log('\n=== ⑦ 群聊书名（Group Chat 聚合）===');
 {

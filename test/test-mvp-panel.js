@@ -47,12 +47,13 @@ if (!playwright) {
 }
 
 const BROWSERS = [
+    process.env.NOVEL_STREAM_BROWSER,
     'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
     'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
     'C:/Program Files/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'
 ];
-const executablePath = BROWSERS.find((p) => fs.existsSync(p));
+const executablePath = BROWSERS.find((p) => p && fs.existsSync(p));
 if (!executablePath) {
     console.log('[SKIP] 未找到 Edge / Chrome，跳过 MVP 面板测试');
     process.exit(0);
@@ -85,7 +86,7 @@ function extractConstObj(name) {
 
 const FNS = [
     'parseTagList', 'cleanNovelText', 'getCleanMessageSig', 'getCleanedMessage',
-    'chatHasUserMessage', 'computeChapters', 'computeChapterMap',
+    'chatHasUserMessage', 'isInterruptedStreamPlaceholder', 'getEmptyBookMessage', 'computeChapters', 'computeChapterMap',
     'sanitizeFilename', 'getAccountPrefix', 'getBookTitle', 'getBookFileName',
     'buildNovelText', 'composeNovelExport', 'getCurrentChatLog',
     'isAuxiliaryTag', 'scanChatTags', 'toggleTagMembership',
@@ -95,13 +96,14 @@ const FNS = [
     'getChatKey', 'isNovelGenerating',
     'getNovelOverrides', 'getEffectiveSettings', 'persistNovelOverrides', 'setNovelOverrideEnabled', 'setNovelFilterSettings',
     'formatExportTime', 'updateExportStatusLine', 'exportNovelText', 'applyNovelUIRefresh',
-    'injectWandEntry', 'syncWandEntryState'
+    'showNovelHostNotice', 'injectWandEntry', 'syncWandEntryState'
 ].map(extractFn).join('\n\n');
 
 const PAGE_SRC = [
     extractConstObj('DEFAULT_SETTINGS'),
     extractConst('cleanTextCache', /const cleanTextCache = new WeakMap\(\);/),
     extractConst('messageTagCache', /const messageTagCache = new WeakMap\(\);/),
+    extractConst('interruptedStreamPlaceholders', /const interruptedStreamPlaceholders = new WeakMap\(\);/),
     extractConst('INLINE_TAGS', /const INLINE_TAGS = new Set\([^;]*\);/),
     extractConst('SCAN_IGNORE_TAGS', /const SCAN_IGNORE_TAGS = new Set\([\s\S]*?\n\]\);/),
     extractConst('AUX_WORDS', /const AUX_WORDS = new Set\([^;]*\);/),
@@ -141,7 +143,7 @@ function __chatLog() {
 // 模块级状态（与 index.js 同名同形）
 let novelPanel = null;
 let uiRefs = {};
-let generation = null, stoppedReply = null;
+let generation = null, stoppedReply = null, panelLoadFailed = false;
 const recentExports = new Map();
 const stRuntime = {};
 function getStContext() { return ctx; }
@@ -498,7 +500,7 @@ ${BOOTSTRAP.replace(/<\/script/gi, '<\\/script')}
 </script>
 </body></html>`;
 
-const harnessPath = path.join(os.tmpdir(), 'novel-mvp-panel-harness.html');
+const harnessPath = path.join(os.tmpdir(), `novel-mvp-panel-harness-${process.pid}.html`);
 fs.writeFileSync(harnessPath, HTML, 'utf8');
 
 let pass = 0;
@@ -542,11 +544,12 @@ const HOST_MODULE = `
         return blobUrl.call(URL, blob);
     };
     export const isGenerating = () => busy;
-    let saves = 0;
+    let saves = 0, saveFailure = false;
     window.__host = {
         chat, downloads, emit: eventSource.emit,
         busy: (state) => { busy = state; },
         stream: (processor) => { streamingProcessor = processor; },
+        failSave: (on) => { saveFailure = on; },
         setActor: (id) => { characterId = id; },
         setChat(id, messages, group = null) {
             chatId = id;
@@ -560,7 +563,10 @@ const HOST_MODULE = `
             chat, chatId, groupId, characterId, characters, streamingProcessor,
             groups: [{ id: 1, name: '测试群组' }],
             chatMetadata: metadata.get(chatId),
-            saveMetadataDebounced: () => { saves++; }
+            saveMetadata: async () => {
+                saves++;
+                if (saveFailure) throw new Error('模拟会话规则保存被拒绝');
+            }
         }),
         saves: () => saves,
         texts: () => Promise.all(downloads.map((blob) => blob.text()))
@@ -607,6 +613,10 @@ async function checkChatWorkflow(page) {
     });
     await page.waitForFunction(() => document.querySelector('.nvui-panel-footer .is-primary').disabled);
     checkTrue('生成中禁用导出按钮', await footer.isDisabled());
+    await clickTab('filter');
+    const busyNotice = page.locator('.novel-generation-notice[role="status"]');
+    checkTrue('过滤页上可见生成中不可导出的原因', await busyNotice.isVisible()
+        && (await busyNotice.textContent()).includes('完成后可导出'));
     check('生成中禁止半截下载', await host(() => window.__host.downloads.length), 1);
     await host(() => {
         const h = window.__host;
@@ -615,6 +625,7 @@ async function checkChatWorkflow(page) {
         h.emit('GENERATION_ENDED');
     });
     await footer.click();
+    check('停止生成后清除共用的生成提示', await busyNotice.textContent(), '');
     checkTrue('停止生成后导出宿主保留内容', (await host(() => window.__host.texts())).at(-1).includes('半截生成'));
     checkTrue('停止生成的导出包含提示', (await page.locator('.nvui-toast').allTextContents()).some((t) => t.includes('包含生成中断时保留的回复')));
     await host(() => {
@@ -661,6 +672,15 @@ async function checkChatWorkflow(page) {
     check('规则写入会话元数据', await host(() => window.__host.context().chatMetadata.novelStreamFilters.include_tags), 'story');
     await include.press('Tab');
     checkTrue('会话规则请求宿主保存', await host(() => window.__host.saves()) > 0);
+    await host(() => window.__host.failSave(true));
+    await include.fill('story, scene');
+    await include.press('Tab');
+    checkTrue('会话规则保存失败有提醒', await host(() => window.__hostNotices.some(({ message, type }) =>
+        type === 'error' && message.includes('会话规则保存失败'))));
+    check('保存失败时本页保留当前正在使用的规则', await include.inputValue(), 'story, scene');
+    await host(() => window.__host.failSave(false));
+    await include.fill('story');
+    await include.press('Tab');
 
     await clickTab('file');
     await openAcc('按章节范围导出');
@@ -729,10 +749,166 @@ async function checkChatWorkflow(page) {
     const endingCount = await host(() => window.__host.downloads.length);
     await footer.click();
     check('删除最后一条用户消息后不产生下载', await host(() => window.__host.downloads.length), endingCount);
+    checkTrue('尚未开始对话时提醒先发消息', (await page.locator('.nvui-toast').allTextContents())
+        .some((t) => t.includes('请先发出一条消息')));
+    await host(() => window.__host.setChat('等待回复', [
+        { is_user: true, mes: '开始。' }, { is_system: true, mes: '工具结果' }
+    ]));
+    await footer.click();
+    checkTrue('只有用户发言和工具消息时提示等待回复',
+        (await page.locator('.nvui-toast').allTextContents()).some((t) => t.includes('还没有可入书的回复')));
+    await host(() => window.__host.setChat('空正文', [{ is_user: true, mes: '开始。' }, { mes: '<status>状态</status>' }]));
+    await footer.click();
+    check('过滤后无正文时仍不产生下载', await host(() => window.__host.downloads.length), endingCount);
+    checkTrue('过滤后无正文时指向过滤页', (await page.locator('.nvui-toast').allTextContents())
+        .some((t) => t.includes('请检查「过滤」页')));
+
+    await host(() => {
+        const h = window.__host;
+        h.setChat('首字前断流', [{ is_user: true, mes: '开始。' }]);
+        h.busy(true);
+        h.emit('GENERATION_STARTED', 'normal');
+        h.chat.push({ name: '艾莉丝', mes: '...', swipe_id: 0 });
+        h.stream({ messageId: 1, firstMessageText: '...', result: '', isStopped: true });
+        h.busy(false);
+        h.emit('GENERATION_ENDED');
+        h.stream(undefined);
+    });
+    await footer.click();
+    check('首字前断流留下的占位符不产生下载', await host(() => window.__host.downloads.length), endingCount);
+    checkTrue('占位符空回提示重新生成', (await page.locator('.nvui-toast').allTextContents())
+        .some((t) => t.includes('酒馆只保留了占位符')));
+    await host(() => {
+        const h = window.__host;
+        h.chat[1].swipe_id = 1;
+        h.emit('MESSAGE_SWIPED', 1);
+    });
+    await footer.click();
+    checkTrue('同一楼层另一回复分支的省略号仍可入书', (await host(() => window.__host.texts())).at(-1).includes('　　...'));
+    await host(() => {
+        const h = window.__host;
+        h.chat[1].swipe_id = 0;
+        h.emit('MESSAGE_SWIPED', 1);
+    });
+    const afterAlternate = await host(() => window.__host.downloads.length);
+    await footer.click();
+    check('切回中断分支后仍跳过原占位符', await host(() => window.__host.downloads.length), afterAlternate);
+    await host(() => window.__host.emit('MESSAGE_EDITED', 1));
+    await footer.click();
+    check('手动编辑后保留用户选择的省略号', await host(() => window.__host.downloads.length), afterAlternate + 1);
+    await host(() => {
+        const h = window.__host;
+        h.setChat('消息尚未写入时断流', [{ is_user: true, mes: '开始。' }]);
+        h.busy(true);
+        h.emit('GENERATION_STARTED', 'normal');
+        h.chat.push({ name: '艾莉丝', mes: '...' });
+        h.stream({ messageId: 1, firstMessageText: '...', result: '尚未写入聊天的模型输出。', isStopped: true });
+        h.busy(false);
+        h.emit('GENERATION_ENDED');
+        h.stream(undefined);
+    });
+    await footer.click();
+    check('断流时跳过宿主未更新的占位符，也不添加未写入聊天的内容',
+        await host(() => window.__host.downloads.length), afterAlternate + 1);
 }
 
-async function checkAssetStartup(browser, offline) {
-    const page = await browser.newPage();
+async function checkDownloadedNovel(page) {
+    const footer = page.locator('.nvui-panel-footer .is-primary');
+    async function downloadFrom(button) {
+        const [download] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }), button.click()]);
+        const diskPath = await download.path();
+        return { name: download.suggestedFilename(), bytes: fs.readFileSync(diskPath), diskPath };
+    }
+
+    await page.evaluate(() => window.__host.setChat('真实文件? / 核验', [
+        { mes: '隐藏的工具结果', is_system: true },
+        { name: '阿岚', mes: '旅途开始。' },
+        { is_user: true, mes: '用户发言。' },
+        { name: '阿岚', mes: '中\u0000文🙂。\r第二段。<status>外<status>内</status>外</status>' },
+        { name: '露西', mes: 'Español · 日本語 · العربية。' }
+    ], 1));
+    const first = await downloadFrom(footer);
+    const title = '\uFEFF《[群聊] 测试群组 - 真实文件? / 核验》\n\n';
+    const greeting = '第 1 章 · 阿岚 (原楼层: 2)\n\n　　旅途开始。\n\n\n';
+    const second = '第 2 章 · 阿岚 (原楼层: 4)\n\n　　中文🙂。\n\n　　第二段。\n\n\n';
+    const third = '第 3 章 · 露西 (原楼层: 5)\n\n　　Español · 日本語 · العربية。\n\n\n';
+    check('下载文件实际字节含 UTF-8 BOM、多语种和完整章节', first.bytes.equals(Buffer.from(title + greeting + second + third)), true);
+    checkTrue('浏览器采用跨平台安全的 TXT 文件名', first.name.endsWith('.txt') && !/[<>:"/\\|?*]/.test(first.name));
+    const repeat = await downloadFrom(footer);
+    check('同一书稿连续下载两次的字节完全一致', repeat.bytes.equals(first.bytes), true);
+
+    await page.locator('.nvui-tab[data-tab="file"]').click();
+    const rangeBox = page.getByRole('button', { name: /按章节范围导出/ });
+    if (await rangeBox.getAttribute('aria-expanded') === 'false') await rangeBox.click();
+    await page.getByRole('spinbutton', { name: '起始章节' }).fill('2');
+    await page.getByRole('spinbutton', { name: '结束章节' }).fill('3');
+    const ranged = await downloadFrom(page.getByRole('button', { name: '下载所选章节' }));
+    check('范围文件保留原章号和楼层并写入正确后缀', ranged.bytes.equals(Buffer.from(title + second + third))
+        && ranged.name.endsWith(' - 第 2-3 章.txt'), true);
+
+    await page.evaluate(() => {
+        const host = window.__host;
+        host.chat.splice(3, 1);
+        host.chat[3].mes = '重新生成的结尾。';
+        host.emit('MESSAGE_DELETED', host.chat.length);
+        host.emit('MESSAGE_RECEIVED', 3, 'regenerate');
+    });
+    const edited = await downloadFrom(footer);
+    check('删改后实际下载只含当前书稿且重新编号', edited.bytes.equals(Buffer.from(title + greeting
+        + '第 2 章 · 露西 (原楼层: 4)\n\n　　重新生成的结尾。\n\n\n')), true);
+    check('较早下载的文件保留原始快照', fs.readFileSync(first.diskPath).equals(first.bytes), true);
+
+    const count = 4000;
+    await page.evaluate((count) => {
+        const messages = Array.from({ length: count }, (_, i) => ({
+            name: '长篇作者',
+            mes: `<story>第${i + 1}条正文。${'星空与远方🙂。'.repeat(20)}</story><status>应排除</status>`
+        }));
+        window.__host.setChat('长篇🙂'.repeat(80), [{ is_user: true, mes: '开始。' }, ...messages]);
+    }, count);
+    const long = await downloadFrom(footer);
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(long.bytes);
+    const headings = [...text.matchAll(/^第 (\d+) 章 · 长篇作者 \(原楼层: (\d+)\)$/gm)];
+    check('长书下载中 4,000 章的章号与楼层连续且文件未截断', headings.length === count
+        && headings.every((match, i) => Number(match[1]) === i + 1 && Number(match[2]) === i + 2)
+        && text.endsWith('星空与远方🙂。\n\n\n') && !text.includes('应排除'), true);
+    checkTrue('长中文和表情标题的真实文件名仍在 255 字节内',
+        Buffer.byteLength(long.name, 'utf8') <= 255 && long.name.endsWith('.txt'));
+
+    await page.evaluate(() => {
+        const click = HTMLAnchorElement.prototype.click;
+        const revoke = URL.revokeObjectURL;
+        let failedUrl;
+        window.__novelFailedUrlReleased = false;
+        HTMLAnchorElement.prototype.click = function () {
+            failedUrl = this.href;
+            throw new Error('模拟浏览器拒绝下载');
+        };
+        URL.revokeObjectURL = function (url) {
+            revoke.call(URL, url);
+            if (url === failedUrl) {
+                window.__novelFailedUrlReleased = true;
+                URL.revokeObjectURL = revoke;
+            }
+        };
+        try {
+            document.querySelector('.nvui-panel-footer .is-primary').click();
+        } finally {
+            HTMLAnchorElement.prototype.click = click;
+        }
+    });
+    check('下载触发失败后不会留下临时下载链接', await page.locator('a[download]').count(), 0);
+    await page.waitForFunction(() => window.__novelFailedUrlReleased);
+    checkTrue('下载失败会回收 Blob URL 并提示用户',
+        (await page.locator('.nvui-toast').allTextContents()).some((message) => message.includes('浏览器未能生成下载文件')));
+}
+
+async function checkAssetStartup(browser, mode) {
+    const mobile = mode === 'mobile';
+    const offline = mode === 'offline';
+    const failed = mode === 'failed';
+    const context = await browser.newContext(mobile ? { isMobile: true, hasTouch: true, viewport: { width: 320, height: 640 } } : {});
+    const page = await context.newPage();
     const host = 'https://novel-stream.test';
     const extension = '/scripts/extensions/third-party/novel-stream';
     const kit = path.join(ROOT, 'ui-kit');
@@ -742,12 +918,18 @@ async function checkAssetStartup(browser, offline) {
     const cdnRequests = [];
     const localRequests = [];
     const errors = [];
+    let failAssets;
+    const assetGate = failed ? new Promise((resolve) => { failAssets = resolve; }) : null;
     page.on('pageerror', (err) => errors.push(err.message));
-    await page.route('**/*', (route) => {
+    await page.route('**/*', async (route) => {
         const url = route.request().url();
         const pathname = new URL(url).pathname;
         const asset = path.posix.basename(pathname);
         if (assets.includes(asset)) {
+            if (failed) {
+                await assetGate;
+                return route.abort();
+            }
             if (url.startsWith(cdn)) {
                 cdnRequests.push(asset);
                 if (offline) return route.abort();
@@ -764,10 +946,20 @@ async function checkAssetStartup(browser, offline) {
         if (url === host + '/') {
             return route.fulfill({
                 contentType: 'text/html',
-                body: `<!doctype html><button id="extensionsMenuButton">魔法棒</button><div id="extensionsMenu" onclick="this.hidden = true"></div>
-<script>globalThis.NVUI = { version: '2.3.0' }</script>
+                body: `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="${extension}/style.css">
+<button id="extensionsMenuButton" onclick="document.getElementById('extensionsMenu').hidden = false">魔法棒</button>
+<div id="extensionsMenu" onclick="this.hidden = true"></div>
+<script>
+globalThis.NVUI = { version: '2.3.0' };
+window.__hostNotices = [];
+globalThis.toastr = Object.fromEntries(['info','error'].map(type => [type, message => window.__hostNotices.push({ type, message })]));
+</script>
 <script type="module" src="${extension}/index.js"></script>`
             });
+        }
+        if (pathname === `${extension}/style.css`) {
+            return route.fulfill({ contentType: 'text/css', path: path.join(ROOT, 'style.css') });
         }
         const modules = {
             [`${extension}/index.js`]: src,
@@ -780,10 +972,54 @@ async function checkAssetStartup(browser, offline) {
         return route.abort();
     });
     try {
-        await page.goto(host + '/');
-        await page.locator('#novel-wand-menu-item').click({ timeout: 5000 });
+        await page.goto(host + '/', { waitUntil: 'domcontentloaded' });
+        const wand = page.locator('#novel-wand-menu-item');
+        if (failed) {
+            await wand.getByText('正在加载', { exact: true }).waitFor({ timeout: 5000 });
+            await wand.press('Enter');
+            checkTrue('资源仍在加载时，键盘操作有提示', await page.evaluate(() =>
+                window.__hostNotices.some(({ message, type }) => type === 'info' && message.includes('正在加载'))));
+            failAssets();
+            await page.locator('#novel_wand_menu_state').filter({ hasText: '加载失败' }).waitFor({ state: 'attached' });
+            await page.locator('#extensionsMenuButton').click();
+            await page.evaluate(() => { delete globalThis.toastr; });
+            const [notice] = await Promise.all([page.waitForEvent('dialog').then(async (dialog) => {
+                const message = dialog.message();
+                await dialog.accept();
+                return message;
+            }), wand.click()]);
+            checkTrue('CDN 与本地同时失败时仍提示排查方式', notice.includes('加载失败') && notice.includes('刷新页面'));
+            check('资源失败期间不展示半初始化面板', await page.locator('.nvui-panel').count(), 0);
+            check('资源失败由入口处理，无未捕获异常', errors.join(' | '), '');
+            return;
+        }
+        await wand.getByText('连载中', { exact: true }).waitFor({ timeout: 5000 });
+        if (mobile) await wand.tap();
+        else await wand.press('Enter');
         await page.locator('.nvui-panel').waitFor({ state: 'visible', timeout: 5000 });
+        if (mobile) {
+            await page.evaluate(() => window.__host.setChat('手机连载', [
+                { is_user: true, mes: '开始' }, { mes: '窄屏触控下载的正文🙂。' }
+            ]));
+            await page.locator('.nvui-bottom-nav-item[data-tab="file"]').tap();
+            const downloadButton = page.locator('.nvui-panel-footer .is-primary');
+            const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.tap()]);
+            const bytes = fs.readFileSync(await download.path());
+            checkTrue('320px 窄屏触控可下载真实 UTF-8 文件', bytes.subarray(0, 3).equals(Buffer.from([239, 187, 191]))
+                && bytes.toString('utf8').includes('窄屏触控下载的正文🙂。'));
+            await page.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' });
+            await page.setViewportSize({ width: 568, height: 320 });
+            await page.locator('.nvui-bottom-nav-item[data-tab="serial"]').tap();
+            const bounds = await downloadButton.boundingBox();
+            checkTrue('横屏 568×320 可达底部下载按钮', bounds && bounds.y >= 0 && bounds.y + bounds.height <= 320);
+            await downloadButton.focus();
+            checkTrue('减弱动效和强制颜色模式下仍可聚焦下载按钮',
+                await downloadButton.evaluate((button) => document.activeElement === button && !button.disabled));
+            check('窄屏与横屏流程无运行报错', errors.join(' | '), '');
+            return;
+        }
         const label = offline ? '离线回退' : 'CDN 加载';
+        checkTrue(`${label}：键盘打开后收起魔法棒菜单`, !(await page.locator('#extensionsMenu').isVisible()));
         check(`${label}：尝试同版 CDN 的 JS 和 CSS`, cdnRequests.sort().join(','), assets.join(','));
         check(`${label}：本地资源请求`, localRequests.sort().join(','), offline ? assets.join(',') : '');
         check(`${label}：载入版本替换旧版全局 API`, await page.evaluate(() => globalThis.NVUI.version), version);
@@ -797,10 +1033,14 @@ async function checkAssetStartup(browser, offline) {
         await page.keyboard.press('Escape');
         await page.waitForFunction(() => document.activeElement.id === 'extensionsMenuButton', undefined, { timeout: 5000 });
         check(`${label}：菜单项隐藏时焦点归还魔法棒按钮`, await page.evaluate(() => document.activeElement.id), 'extensionsMenuButton');
-        if (!offline) await checkChatWorkflow(page);
+        if (mode === 'cdn') {
+            await checkChatWorkflow(page);
+            await checkDownloadedNovel(page);
+        }
         check(`${label}：模块启动和导出反馈无运行报错`, errors.join(' | '), '');
     } finally {
-        await page.close();
+        failAssets?.();
+        await context.close();
     }
 }
 
@@ -849,7 +1089,7 @@ async function checkAssetStartup(browser, offline) {
         console.log('\n=== ③ 内容排布（design.md §1.4）===');
         const heads = await dpage.evaluate(() => window.__api.headings());
         check('三个分区 heading 标题', heads.map((h) => h.title).join('|'), '连载设置|过滤设置|文件与导出');
-        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.3.0|v2.3.0|v2.3.0');
+        check('三个分区 heading 徽标版本', heads.map((h) => h.badge).join('|'), 'v2.3.1|v2.3.1|v2.3.1');
         checkTrue('heading 均带 FA 图标', heads.every((h) => h.icon));
         check('连载 pane 子元素顺序（heading→状态行→feature开关→3 折叠组）',
             (await dpage.evaluate(() => window.__api.serialChildren())).join('|'),
@@ -1114,7 +1354,7 @@ async function checkAssetStartup(browser, offline) {
         await dpage.evaluate(() => window.__api.refresh());
         ss = await dpage.evaluate(() => window.__api.serialStatus());
         check('有用户消息但 0 章：提示检查过滤', ss.text,
-            '当前聊天没有可入书的有效正文：请检查「过滤」页的白 / 黑名单是否过于严格');
+            '没有可导出的正文。请检查「过滤」页的当前规则。');
         await dpage.evaluate(() => window.__api.setEnabled(false));
         await dpage.evaluate(() => window.__api.refresh());
         ss = await dpage.evaluate(() => window.__api.serialStatus());
@@ -1144,7 +1384,8 @@ async function checkAssetStartup(browser, offline) {
         check('导出 acc 摘要同步', await dpage.evaluate(() => window.__api.accSummary('导出整本 TXT')).then((s) => /^今天 \d{2}:\d{2} · 第 2 章$/.test(s)), true);
         check('弹出 1 次性成功 toast', await dpage.evaluate(() => window.__api.toastCount('success')), 1);
         checkTrue('toast role=status', (await dpage.evaluate(() => window.__api.toastRole())) === 'status');
-        checkTrue('toast 文案含书名与章节数', (await dpage.evaluate(() => window.__api.toastText())).indexOf('已导出《艾莉丝 - 远征探索》共 2 章') >= 0);
+        checkTrue('toast 明确下载已发起，并含书名与章数',
+            (await dpage.evaluate(() => window.__api.toastText())).includes('已发起下载《艾莉丝 - 远征探索》共 2 章'));
 
         await dpage.evaluate(() => window.__api.setChat([{ is_user: false, name: '艾莉丝', mes: '只有问候语。' }]));
         await dpage.evaluate(() => window.__api.runExport());
@@ -1231,8 +1472,10 @@ async function checkAssetStartup(browser, offline) {
         await mctx.close();
 
         console.log('\n=== ⑭ 真实模块启动：同版 CDN 与离线资源 ===');
-        await checkAssetStartup(browser, false);
-        await checkAssetStartup(browser, true);
+        await checkAssetStartup(browser, 'cdn');
+        await checkAssetStartup(browser, 'offline');
+        await checkAssetStartup(browser, 'failed');
+        await checkAssetStartup(browser, 'mobile');
     } finally {
         await browser.close();
         try { fs.unlinkSync(harnessPath); } catch (e) { /* 忽略 */ }

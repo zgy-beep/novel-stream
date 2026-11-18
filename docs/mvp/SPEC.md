@@ -165,7 +165,7 @@ computeChapters(settings, chatLog) → [{ index, no, speaker, text }]
 | AC-03 | 重 roll/划动 | When 用户重新生成或划动分支，系统**必须**在下次刷新时以新内容重新派生该章（无残留旧文） | P0 |
 | AC-04 | 主角对白 | While `include_user_dialogue=false`，用户楼层**必须**不出现在章节中；为 true 时必须出现 | P0 |
 | AC-05 | 白名单 | While 白名单非空且标签命中，系统**必须**只保留标签内内容；未命中时保留全文并**不得**静默清空 | P0 |
-| AC-06 | 黑名单 | While 黑名单含 status，系统**必须**完整剔除 `<status>…</status>` 块（含成对/无头/未闭合三态） | P0 |
+| AC-06 | 黑名单 | While 黑名单含 status，系统**必须**完整剔除 `<status>…</status>` 块（含成对、嵌套、无头和未闭合），包括块内命中白名单的内容 | P0 |
 | AC-07 | 导出 | When 用户点击导出，系统**必须**下载 UTF-8 BOM 的 TXT，文件名遵循命名规则，章节标题遵循 chapter_style | P0 |
 | AC-08 | 导出反馈 | When 导出完成，系统**必须**刷新「文件」页状态行并弹出 1 次性 toast；无有效章节时必须 toast 警告且不下载 | P0 |
 | AC-09 | 面板结构 | While 面板打开，载体**必须**为 dialog.nvui-tl > overlay.is-panel > .nvui-panel 且非模态 show() | P0 |

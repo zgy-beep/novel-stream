@@ -140,6 +140,38 @@ const cases = [
         name: 'BBI 图片标记和提示词从 TXT 去除，保留前后的正文',
         input: '她停下脚步。<bbi_image>1girl, rain > night\r\n远处有灯光。',
         expected: '　　她停下脚步。\n\n　　远处有灯光。'
+    },
+    {
+        name: '黑名单同名嵌套保护块前后的正文',
+        input: '开头<status>外<status>内</status>外</status>结尾',
+        expected: '　　开头结尾'
+    },
+    {
+        name: '同名和异名白名单嵌套只收录一次',
+        input: '<story>前<scene>内<story>核心</story></scene>后</story>',
+        settings: { include_tags: 'story,scene' },
+        expected: '　　前内核心后'
+    },
+    {
+        name: '排除块内的白名单不能使状态或思考过程入书',
+        input: '<think><story>思考过程</story></think><status label="HP > 100"><story>内部状态</story></status><story>正文</story>',
+        settings: { include_tags: 'story' },
+        expected: '　　正文'
+    },
+    {
+        name: '旧式换行和粘贴的空字节不会影响段落',
+        input: '一\r二\r\n三\u0000四\u2028五',
+        expected: '　　一\n\n　　二\n\n　　三四\n\n　　五'
+    },
+    {
+        name: '图片链接中的括号和标题不会残留到正文',
+        input: '前![说明](a(b).png "图片标题")后',
+        expected: '　　前后'
+    },
+    {
+        name: '属性中的大于号和脚本内的伪闭标签不会污染或截断正文',
+        input: '前<script>const tag = "</story>";</script><span title="A > B">中</span>后',
+        expected: '　　前中后'
     }
 ];
 

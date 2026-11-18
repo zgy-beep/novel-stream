@@ -146,7 +146,7 @@ const saveSettingsDebounced = ctx.saveSettingsDebounced || ssd_raw;
 
 const EXTENSION_NAME = 'autoSaveTxt';
 const DEFAULT_SETTINGS = {
-    version: '2.3.0',                 // 设置结构版本（仅 stamped，无迁移分支）
+    version: '2.3.1',                 // 设置结构版本（仅 stamped，无迁移分支）
     enabled: true,                    // 小说连载总开关
     chapter_style: 'numbered_floor',  // 章节标题样式: numbered_floor / numbered / separator / dialogue
     naming_rule: 'char_chat',         // 文件命名规则: char_chat (角色名 - 对话名) / char_only (仅角色名)
@@ -209,12 +209,19 @@ function getEffectiveSettings(context = getStContext()) {
 }
 
 function persistNovelOverrides(context) {
-    if (typeof context.saveMetadata === 'function') {
-        Promise.resolve(context.saveMetadata()).catch((error) => {
-            console.warn('[AutoSaveTxt] 会话设置保存失败:', error);
-        });
-    } else {
-        context.saveMetadataDebounced?.();
+    const chatKey = getChatKey(context);
+    const onError = (error) => {
+        console.warn('[AutoSaveTxt] 会话设置保存失败:', error);
+        const message = getChatKey() === chatKey
+            ? '会话规则保存失败。当前页面仍使用这次修改，可再次编辑规则重试。'
+            : '上一会话的规则保存失败，请切回该会话检查。';
+        showNovelHostNotice(message, 'error');
+    };
+    try {
+        if (typeof context.saveMetadata === 'function') Promise.resolve(context.saveMetadata()).catch(onError);
+        else context.saveMetadataDebounced?.();
+    } catch (error) {
+        onError(error);
     }
 }
 
@@ -244,23 +251,28 @@ function setNovelFilterSettings(patch, commit = true) {
 /**
  * 健壮的文件名清洗（防 Windows 非法字符与截断）
  */
-function sanitizeFilename(rawName) {
+function sanitizeFilename(rawName, byteLimit = 255) {
     if (!rawName || typeof rawName !== 'string') {
         return '我的小说连载';
     }
     let safeName = rawName
         .replace(/[/\\?%*:|"<>]/g, '_')
-        .replace(/[\r\n\t]/g, ' ')
+        .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
         .replace(/\.{2,}/g, '_')
         .trim();
-    safeName = safeName.slice(0, 150).replace(/[. ]+$/, '');
-
-    // 防御 Windows 经典保留设备名 (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(safeName)) {
-        safeName = `${safeName}_novel`;
+    // Windows 同样保留带扩展名的设备名。先替换，再为完整扩展名预留字节。
+    safeName = safeName.replace(/^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?= *\.|$)/i, '$1_novel');
+    const encoder = new TextEncoder();
+    let result = '';
+    let bytes = 0;
+    let length = 0;
+    for (const char of safeName) {
+        bytes += encoder.encode(char).length;
+        if (bytes > byteLimit || length === 150) break;
+        result += char;
+        length++;
     }
-
-    return safeName || '我的小说连载';
+    return result.replace(/[. ]+$/, '') || '我的小说连载';
 }
 
 /**
@@ -363,8 +375,10 @@ function getAccountPrefix() {
 }
 
 // 真实磁盘文件名：账号前缀 + 书名（导出与书卡展示共用，保证两端一致）
-function getBookFileName(settings) {
-    return `${sanitizeFilename(getAccountPrefix() + getBookTitle(settings))}.txt`;
+function getBookFileName(settings, chapterRange) {
+    const suffix = chapterRange ? ` - 第 ${chapterRange.start}-${chapterRange.end} 章.txt` : '.txt';
+    const stem = sanitizeFilename(getAccountPrefix() + getBookTitle(settings), 255 - new TextEncoder().encode(suffix).length);
+    return stem + suffix;
 }
 
 const INLINE_TAGS = new Set(['b', 'i', 'u', 's', 'em', 'strong', 'span', 'sub', 'sup', 'small', 'del', 'mark']);
@@ -477,14 +491,18 @@ function toggleTagMembership(includeStr, excludeStr, tag, action) {
  */
 function cleanNovelText(rawText, settings = {}) {
     if (!rawText || typeof rawText !== 'string') return '';
-    let text = rawText;
+    let text = rawText
+        .replace(/\r\n?|[\u2028\u2029]/g, '\n')
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
     // 标签名必须完整匹配，自闭合标签不能作为包裹正文的开标签。
     const openTagSuffix = '(?=[\\s>])(?![^>]*\\/\\s*>)[^>]*>';
+    const tagTokens = /<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9_\-~.:#]*)(?=[\s/>])(?:[^"'<>]|"[^"]*"|'[^']*')*>/g;
 
     // 前置清洗：彻底过滤 HTML 注释 (如 <!-- Lorebook: ... -->) 与 Markdown 多媒体图片
     text = text.replace(/<!--[\s\S]*?-->/g, '');
-    text = text.replace(/!\[.*?\]\(.*?\)/g, '');
-    text = text.replace(/<img(?=[\s/>])[^>]*>/gi, '');
+    text = text.replace(/<\s*(script|style)(?=[\s>])(?:[^"'<>]|"[^"]*"|'[^']*')*>[\s\S]*?<\/\s*\1\s*>/gi, '');
+    text = text.replace(/!\[(?:\\[^\n]|[^\]\\\n])*\]\((?:\\[^\n]|[^()"'\\\n]|"[^"\n]*"|'[^'\n]*'|\([^()\n]*\))*\)/g, '');
+    text = text.replace(tagTokens, (token, _closing, name) => name.toLowerCase() === 'img' ? '' : token);
     // BBI 的图像提示词紧跟在标记后，直到行末。
     text = text.replace(/<bbi_image\s*>[^\r\n]*/gi, '');
 
@@ -510,96 +528,69 @@ function cleanNovelText(rawText, settings = {}) {
         break;
     }
 
-    // 泛化剔除思考/思维链/草稿/规划标签：标签名拆成字母段后有完整段命中名单才算辅助标签
-    // （think_2 / agent-cot 等分隔变体照常识别），杜绝 <planets> / <airplane> / <cotton> 子串误伤。
-    // 判定与检测器共用模块级 isAuxiliaryTag（防漂移：「自动」徽标必须与引擎实际行为一致）
-    const isAuxTag = isAuxiliaryTag;
-    const auxOpenRe = new RegExp(`<\\s*([a-zA-Z][a-zA-Z0-9_\\-~.:#]*)${openTagSuffix}`, 'gi');
-
-    // 成对剔除：逐个找出辅助标签开标签，按真实标签名精确配对剔除
-    const scannedAux = new Set();
-    let auxScan;
-    while ((auxScan = auxOpenRe.exec(text)) !== null) {
-        const auxName = auxScan[1];
-        const auxKey = auxName.toLowerCase();
-        if (scannedAux.has(auxKey) || !isAuxTag(auxKey)) continue;
-        scannedAux.add(auxKey);
-        const safeAuxName = auxName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        text = text.replace(new RegExp(`<\\s*${safeAuxName}${openTagSuffix}[\\s\\S]*?<\\/\\s*${safeAuxName}\\s*>\\s*`, 'gi'), '');
-        auxOpenRe.lastIndex = 0; // 文本已变，从头重扫（同名标签已被 scannedAux 去重，不会死循环）
-    }
-
-    // 剔除残留的第一个未闭合辅助标签及其后全部内容（max_tokens 截断未输出闭合标签的情况）
-    auxOpenRe.lastIndex = 0;
-    while ((auxScan = auxOpenRe.exec(text)) !== null) {
-        if (isAuxTag(auxScan[1])) {
-            text = text.slice(0, auxScan.index);
-            break;
-        }
-    }
-
-    // 阶段一【白名单模式】：优先提取指定标签内的正文
-    const includeTags = parseTagList(settings.include_tags);
-
-    if (includeTags.length > 0) {
-        const extractedParts = [];
-        for (const tag of includeTags) {
-            const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const tagRegex = new RegExp(`<\\s*${safeTag}${openTagSuffix}([\\s\\S]*?)<\\/\\s*${safeTag}\\s*>`, 'gi');
-            let match;
-            while ((match = tagRegex.exec(text)) !== null) {
-                const body = match[1].trim();
-                if (body) extractedParts.push({ index: match.index, body });
+    // 匹配完整标签边界，并在属性带有引号时保留其中的 >。
+    function findBlocks(source, acceptsTag, includeUnclosed = false) {
+        const pending = new Map();
+        const blocks = [];
+        for (const token of source.matchAll(tagTokens)) {
+            const name = token[2].toLowerCase();
+            if (!acceptsTag(name)) continue;
+            if (token[1]) {
+                const opening = pending.get(name)?.pop();
+                if (opening) {
+                    blocks.push({ ...opening, bodyEnd: token.index, end: token.index + token[0].length });
+                }
+            } else if (!/\/\s*>$/.test(token[0])) {
+                if (!pending.has(name)) pending.set(name, []);
+                pending.get(name).push({ start: token.index, bodyStart: token.index + token[0].length });
             }
         }
-        if (extractedParts.length > 0) {
-            extractedParts.sort((a, b) => a.index - b.index);
-            text = extractedParts.map((part) => part.body).join('\n\n');
-        }
-    }
-
-    // 阶段二【黑名单模式】：深度剔除不要的标签块（支持成对、开篇无开标签、尾部未闭合等各类异常形态）
-    const excludeTags = parseTagList(
-        (typeof settings.exclude_tags === 'string')
-            ? settings.exclude_tags
-            : (DEFAULT_SETTINGS.exclude_tags || '')
-    );
-
-    if (excludeTags.length > 0) {
-        const alt = excludeTags.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-
-        // 1. 成对标签块一趟剔除（合并 alternation + 反向引用，替代逐标签全文本扫描）
-        text = text.replace(new RegExp(`<\\s*(${alt})${openTagSuffix}[\\s\\S]*?<\\/\\s*\\1\\s*>\\s*`, 'gi'), '');
-
-        // 2. 一趟扫描确定各标签残留的开 / 闭标签存在性
-        const presenceRe = new RegExp(`<\\s*(\\/)?\\s*(${alt})(?=[\\s/>])[^>]*>`, 'gi');
-        const hasOpen = new Set();
-        const hasClose = new Set();
-        let presenceMatch;
-        while ((presenceMatch = presenceRe.exec(text)) !== null) {
-            if (presenceMatch[1]) hasClose.add(presenceMatch[2].toLowerCase());
-            else if (!/\/\s*>$/.test(presenceMatch[0])) hasOpen.add(presenceMatch[2].toLowerCase());
-        }
-
-        // 3. 仅对确有残留形态的标签定点清除：无开有闭 → 切除开篇孤立闭块；有开无闭 → 切除末尾未闭合块
-        for (const tag of excludeTags) {
-            const key = tag.toLowerCase();
-            const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            if (!hasOpen.has(key) && hasClose.has(key)) {
-                text = text.replace(new RegExp(`^[\\s\\S]*?<\\/\\s*${safeTag}\\s*>\\s*`, 'i'), '');
-            }
-            if (hasOpen.has(key) && !hasClose.has(key)) {
-                text = text.replace(new RegExp(`<\\s*${safeTag}${openTagSuffix}[\\s\\S]*$`, 'i'), '');
+        if (includeUnclosed) {
+            for (const entries of pending.values()) {
+                for (const opening of entries) blocks.push({ ...opening, end: source.length });
             }
         }
+        return blocks.sort((a, b) => a.start - b.start);
     }
 
-    // 阶段三【网页与排版杂质清洗】
-    text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    text = text.replace(/<br\s*[\/]?>/gi, '\n');
-    text = text.replace(/<\/p>/gi, '\n\n');
-    text = text.replace(/<\/?[a-zA-Z0-9_\-~.:#]+[^>]*>/g, '');
+    // 先剔除辅助标签与黑名单块，避免提取其内部碰巧命中的白名单标签。
+    const excludes = new Set(parseTagList(
+        typeof settings.exclude_tags === 'string' ? settings.exclude_tags : DEFAULT_SETTINGS.exclude_tags
+    ));
+    const removed = findBlocks(text, (tag) => isAuxiliaryTag(tag) || excludes.has(tag), true);
+    if (removed.length) {
+        const parts = [];
+        let cursor = 0;
+        for (const block of removed) {
+            if (block.end <= cursor) continue;
+            if (block.start > cursor) parts.push(text.slice(cursor, block.start));
+            cursor = block.end;
+            while (cursor < text.length && /\s/.test(text[cursor])) cursor++;
+        }
+        parts.push(text.slice(cursor));
+        text = parts.join('');
+    }
+
+    const includes = new Set(parseTagList(settings.include_tags));
+    if (includes.size) {
+        const parts = [];
+        let coveredUntil = 0;
+        for (const block of findBlocks(text, (tag) => includes.has(tag))) {
+            if (block.start < coveredUntil) continue;
+            const body = text.slice(block.bodyStart, block.bodyEnd).trim();
+            if (body) parts.push(body);
+            coveredUntil = block.end;
+        }
+        if (parts.length) text = parts.join('\n\n');
+    }
+
+    // 网页标签转为纯文本，并保留换行和段落边界。
+    text = text.replace(tagTokens, (_whole, closing, rawName) => {
+        const name = rawName.toLowerCase();
+        if (!closing && name === 'br') return '\n';
+        if (closing && name === 'p') return '\n\n';
+        return '';
+    });
 
     text = text
         .replace(/&nbsp;/g, ' ')
@@ -611,7 +602,7 @@ function cleanNovelText(rawText, settings = {}) {
 
     // 阶段四【中文出版小说段落规范化】
     const paragraphs = text
-        .split(/\r?\n+/)
+        .split(/\n+/)
         .map(p => p.trim())
         .filter(p => p.length > 0);
 
@@ -651,9 +642,28 @@ function getCleanedMessage(msg, settings, sig) {
 function chatHasUserMessage(chatLog) {
     if (!Array.isArray(chatLog)) return false;
     for (const m of chatLog) {
-        if (m && m.is_user) return true;
+        if (m?.is_user && !m.is_system) return true;
     }
     return false;
+}
+
+const interruptedStreamPlaceholders = new WeakMap();
+
+function isInterruptedStreamPlaceholder(message) {
+    return message?.mes === '...' && interruptedStreamPlaceholders.get(message)?.has(message.swipe_id ?? null);
+}
+
+function getEmptyBookMessage(settings, chatLog) {
+    if (!chatHasUserMessage(chatLog)) return '请先发出一条消息，再导出小说。';
+    if (isInterruptedStreamPlaceholder(chatLog.at(-1))) {
+        return '回复中断，酒馆只保留了占位符。可重新生成后再导出。';
+    }
+    const hasSource = chatLog.some((message) => message && !message.is_system
+        && (!message.is_user || settings.include_user_dialogue)
+        && typeof message.mes === 'string' && message.mes.trim());
+    return hasSource
+        ? '没有可导出的正文。请检查「过滤」页的当前规则。'
+        : '还没有可入书的回复。可等待回复，或在「连载」页开启主角对白。';
 }
 
 /**
@@ -671,7 +681,7 @@ function computeChapters(settings, chatLog) {
     let no = 0;
     for (let i = 0; i < chatLog.length; i++) {
         const msg = chatLog[i];
-        if (!msg || typeof msg !== 'object') continue;
+        if (!msg || typeof msg !== 'object' || msg.is_system || isInterruptedStreamPlaceholder(msg)) continue;
         if (msg.is_user && !settings.include_user_dialogue) continue;
         const text = getCleanedMessage(msg, settings, sig);
         if (!text) continue;
@@ -697,21 +707,23 @@ function computeChapterMap(settings, chatLog) {
  * 将全部聊天编排为整本小说文本（导出与面板计数共用同一派生结果）
  */
 function buildNovelText(settings, chatLog, chapters = computeChapters(settings, chatLog)) {
-    const bookTitle = getBookTitle(settings);
+    const heading = (value) => String(value).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim();
+    const bookTitle = heading(getBookTitle(settings)) || '我的小说连载';
     const parts = [`《${bookTitle}》\n\n`];
     let chapterCount = 0;
 
     for (const ch of chapters) {
         chapterCount++;
         const floor = ch.index + 1;
+        const speaker = heading(ch.speaker) || '旁白';
         if (settings.chapter_style === 'separator') {
             parts.push(`* * *\n\n${ch.text}\n\n\n`);
         } else if (settings.chapter_style === 'dialogue') {
-            parts.push(`【${ch.speaker}】\n\n${ch.text}\n\n\n`);
+            parts.push(`【${speaker}】\n\n${ch.text}\n\n\n`);
         } else if (settings.chapter_style === 'numbered') {
-            parts.push(`第 ${ch.no} 节 · ${ch.speaker}\n\n${ch.text}\n\n\n`);
+            parts.push(`第 ${ch.no} 节 · ${speaker}\n\n${ch.text}\n\n\n`);
         } else {
-            parts.push(`第 ${ch.no} 章 · ${ch.speaker} (原楼层: ${floor})\n\n${ch.text}\n\n\n`);
+            parts.push(`第 ${ch.no} 章 · ${speaker} (原楼层: ${floor})\n\n${ch.text}\n\n\n`);
         }
     }
 
@@ -721,11 +733,11 @@ function buildNovelText(settings, chatLog, chapters = computeChapters(settings, 
 /**
  * 导出载荷纯函数（可 node 测试）：文件名遵循命名规则，text 已带 UTF-8 BOM
  */
-function composeNovelExport(settings, chatLog, chapters) {
+function composeNovelExport(settings, chatLog, chapters, chapterRange) {
     const { bookTitle, novelText, chapterCount } = buildNovelText(settings, chatLog, chapters);
     return {
         bookTitle,
-        fileName: getBookFileName(settings),
+        fileName: getBookFileName(settings, chapterRange),
         text: '\uFEFF' + novelText,
         chapterCount
     };
@@ -734,6 +746,7 @@ function composeNovelExport(settings, chatLog, chapters) {
 /* ==================== UI 区（NVUI Kit 面板 + 魔法棒入口） ==================== */
 
 let novelPanel = null;                 // NVUI 面板控制器
+let panelLoadFailed = false;
 let uiRefs = {};                       // 状态行 / 导出状态行 / 导出折叠组等 DOM 引用
 let refreshTimer = 0;                  // refreshNovelUI 防抖句柄
 const recentExports = new Map();
@@ -955,6 +968,8 @@ function createFilterPreview() {
         select.disabled = index < 0;
         const chapter = byIndex.get(index);
         const reason = !selected ? '当前会话没有可预览的消息。'
+            : selected.is_system ? '系统消息未纳入书稿。'
+            : isInterruptedStreamPlaceholder(selected) ? '回复中断，酒馆只保留了占位符。'
             : !chatHasUserMessage(chatLog) ? '尚未开始对话。'
             : selected.is_user && !settings.include_user_dialogue ? '当前设置未收录用户发言。'
             : '清洗后没有正文。';
@@ -1036,7 +1051,7 @@ function createRangeExport(onExport) {
         download.disabled = !range || next.generating;
         confirm.hidden = !stale || next.generating || count === 0;
         confirm.disabled = !hasValidBounds(count);
-        status.textContent = next.generating ? '正在生成回复。'
+        status.textContent = next.generating ? ''
             : count === 0 ? '当前没有可导出的章节。'
             : stale ? '所选章节已变化，请确认更新后的范围或修改起止章。'
             : range ? `将导出第 ${range.start} 至 ${range.end} 章，保留整书章号。`
@@ -1509,6 +1524,10 @@ function buildNovelPanel(deps, kit = globalThis.NVUI) {
         guardOverlayClick(panel.overlay);
     };
     const exportButtons = panel.panel.querySelectorAll('.nvui-panel-actions .nvui-icon-btn, .nvui-panel-footer .is-primary');
+    const generationNotice = document.createElement('div');
+    generationNotice.className = 'novel-generation-notice nvui-hint';
+    generationNotice.setAttribute('role', 'status');
+    panel.panel.querySelector('.nvui-panel-footer').before(generationNotice);
 
     return {
         panel,
@@ -1525,6 +1544,8 @@ function buildNovelPanel(deps, kit = globalThis.NVUI) {
                 includeAcc.setSummary(includeSummaryOf(effective.include_tags));
                 excludeAcc.setSummary(excludeSummaryOf(effective.exclude_tags));
                 exportButtons.forEach((button) => { button.disabled = model.generating; });
+                const message = model.generating ? '正在生成回复，完成后可导出。' : '';
+                if (generationNotice.textContent !== message) generationNotice.textContent = message;
                 if (!model.generating) tagDetector.render();
                 if (previewAcc.classList.contains('is-open')) preview.render(model);
                 rangeExport.render(model);
@@ -1581,7 +1602,7 @@ function applyNovelUIRefresh() {
     });
     if (uiRefs.serialStatus) {
         if (generating) {
-            uiRefs.serialStatus.setText('正在生成回复，完成后可导出。');
+            uiRefs.serialStatus.setText(`当前书稿《${getBookTitle(settings)}》`);
             uiRefs.serialStatus.setMeta('');
         } else if (settings.enabled === false) {
             uiRefs.serialStatus.setText('连载状态已关闭，仍可导出当前会话。');
@@ -1590,7 +1611,7 @@ function applyNovelUIRefresh() {
             uiRefs.serialStatus.setText(`当前书稿《${getBookTitle(settings)}》`);
             uiRefs.serialStatus.setMeta(`第 ${chapters.length} 章`);
         } else if (chatHasUserMessage(chatLog)) {
-            uiRefs.serialStatus.setText('当前聊天没有可入书的有效正文：请检查「过滤」页的白 / 黑名单是否过于严格');
+            uiRefs.serialStatus.setText(getEmptyBookMessage(settings, chatLog));
             uiRefs.serialStatus.setMeta('');
         } else {
             uiRefs.serialStatus.setText('尚未开始：发出第一句消息后，角色问候语将作为第 1 章入书');
@@ -1621,7 +1642,7 @@ function updateExportStatusLine(chatKey = getChatKey()) {
         return;
     }
     const timeText = formatExportTime(lastExport.time);
-    uiRefs.exportStatus.setText(`已导出《${lastExport.bookTitle}》`);
+    uiRefs.exportStatus.setText(`已发起下载《${lastExport.bookTitle}》`);
     uiRefs.exportStatus.setMeta(timeText);
     uiRefs.exportStatus.setFile(`${lastExport.fileName} · 共 ${lastExport.chapterCount} 章`);
     uiRefs.exportStatus.setSuccess(true);
@@ -1647,43 +1668,51 @@ function exportNovelText(kit = globalThis.NVUI, range) {
             kit.showToast({ message: '所选章节已变化，请确认更新后的范围。', type: 'warn' });
             return;
         }
-        composed = composeNovelExport(settings, chatLog, selected);
-        if (range) composed.fileName = composed.fileName.replace(/\.txt$/i, ` - 第 ${range.start}-${range.end} 章.txt`);
+        composed = composeNovelExport(settings, chatLog, selected, range);
     } catch (err) {
         console.warn('[AutoSaveTxt] 导出编排失败:', err);
         kit.showToast({ message: '导出失败：整本编排时发生错误，请查看浏览器控制台。', type: 'danger', duration: 3200 });
         return;
     }
     if (!composed.chapterCount) {
-        kit.showToast({ message: '当前没有可导出的有效章节：请先开始对话，或检查白 / 黑名单是否过滤过严。', type: 'warn', duration: 3200 });
+        kit.showToast({ message: getEmptyBookMessage(settings, chatLog), type: 'warn', duration: 3200 });
         return;
     }
     const retained = stoppedReply?.chatKey === chatKey && stoppedReply.reply.mes === stoppedReply.text
         && selected.some(({ index }) => chatLog[index] === stoppedReply.reply);
+    let url;
+    let a;
     try {
         const blob = new Blob([composed.text], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        url = URL.createObjectURL(blob);
+        a = document.createElement('a');
         a.href = url;
         a.download = composed.fileName;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        // 延迟撤销：浏览器异步开始下载，同步 revoke 在 Firefox 下会取消本次下载
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
         console.warn('[AutoSaveTxt] 导出下载失败:', err);
         kit.showToast({ message: '导出失败：浏览器未能生成下载文件，请重试。', type: 'danger', duration: 3200 });
         return;
+    } finally {
+        a?.remove();
+        // 给浏览器时间接收 Blob，包含下载触发失败时的回收。
+        if (url) setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     const { bookTitle, fileName, chapterCount } = composed;
     recentExports.set(chatKey, { bookTitle, fileName, chapterCount, time: new Date() });
     updateExportStatusLine(chatKey);
     const notice = retained ? '。包含生成中断时保留的回复。' : '';
-    kit.showToast({ message: `已导出《${bookTitle}》共 ${chapterCount} 章（${fileName}）${notice}`, type: 'success', duration: 3200 });
+    kit.showToast({ message: `已发起下载《${bookTitle}》共 ${chapterCount} 章（${fileName}）${notice}`, type: 'success', duration: 3200 });
 }
 
 /* ---------- 魔法棒菜单入口（design.md §9，宿主 DOM） ---------- */
+
+function showNovelHostNotice(message, type) {
+    const hostToast = globalThis.toastr;
+    if (typeof hostToast?.[type] === 'function') hostToast[type](message);
+    else window.alert(message);
+}
 
 function injectWandEntry() {
     if (typeof document === 'undefined') return false;
@@ -1702,12 +1731,15 @@ function injectWandEntry() {
     item.innerHTML = '<div class="fa-solid fa-book-bookmark extensionsMenuExtensionButton"></div><span class="novel-wand-item-label">小说连载阅读</span><span class="novel-wand-item-state" id="novel_wand_menu_state"></span>';
 
     // 注意：不能 stopPropagation，酒馆靠 body/html 上的点击监听来收起这个下拉菜单
-    const activate = () => { if (novelPanel) novelPanel.open(); };
-    item.addEventListener('click', activate);
+    item.addEventListener('click', () => {
+        if (novelPanel) novelPanel.open();
+        else if (panelLoadFailed) showNovelHostNotice('面板资源加载失败。请刷新页面；若仍失败，请检查扩展安装是否完整。', 'error');
+        else showNovelHostNotice('面板正在加载，请稍后再打开。', 'info');
+    });
     item.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            activate();
+            item.click();
         }
     });
 
@@ -1723,8 +1755,8 @@ function syncWandEntryState() {
     if (!stateEl) return;
     const settings = getSettings();
     const on = !!settings.enabled;
-    stateEl.textContent = on ? '连载中' : '已关闭';
-    stateEl.classList.toggle('is-on', on);
+    stateEl.textContent = panelLoadFailed ? '加载失败' : !novelPanel ? '正在加载' : on ? '连载中' : '已关闭';
+    stateEl.classList.toggle('is-on', !!novelPanel && on);
 }
 
 /* ==================== 事件接线与启动 ==================== */
@@ -1746,9 +1778,22 @@ function bindNovelEvents() {
     on('GROUP_WRAPPER_STARTED', ({ type } = {}) => start(type));
     function rememberInterruptedReply() {
         if (generation?.chatKey === getChatKey()) {
-            const reply = getCurrentChatLog().at(-1);
+            const chatLog = getCurrentChatLog();
+            const stream = getStContext().streamingProcessor;
+            const streamingReply = chatLog[stream?.messageId];
+            const reply = streamingReply ?? chatLog.at(-1);
             if (reply && !reply.is_user && reply.mes && (reply !== generation.before || reply.mes !== generation.text)) {
-                stoppedReply = { chatKey: generation.chatKey, reply, text: reply.mes };
+                if (reply === streamingReply && stream?.firstMessageText === '...'
+                    && reply.mes === stream.firstMessageText && stream.result !== reply.mes) {
+                    let swipes = interruptedStreamPlaceholders.get(reply);
+                    if (!swipes) {
+                        swipes = new Set();
+                        interruptedStreamPlaceholders.set(reply, swipes);
+                    }
+                    swipes.add(reply.swipe_id ?? null);
+                } else {
+                    stoppedReply = { chatKey: generation.chatKey, reply, text: reply.mes };
+                }
             }
         }
     }
@@ -1756,11 +1801,21 @@ function bindNovelEvents() {
         rememberInterruptedReply();
         refreshNovelUI();
     });
+    function clearInterruptedPlaceholder(messageIndex) {
+        const message = getCurrentChatLog()[messageIndex];
+        if (message) interruptedStreamPlaceholders.get(message)?.delete(message.swipe_id ?? null);
+    }
     on('GENERATION_ENDED', () => {
-        if (getStContext().streamingProcessor?.isStopped) rememberInterruptedReply();
+        const stream = getStContext().streamingProcessor;
+        if (stream?.isStopped) rememberInterruptedReply();
+        else if (stream?.result && generation?.chatKey === getChatKey()) clearInterruptedPlaceholder(stream.messageId);
         refreshNovelUI();
     });
-    for (const name of ['MESSAGE_RECEIVED', 'MESSAGE_SENT', 'MESSAGE_SWIPED', 'MESSAGE_EDITED',
+    on('MESSAGE_EDITED', (index) => {
+        clearInterruptedPlaceholder(index);
+        refreshNovelUI();
+    });
+    for (const name of ['MESSAGE_RECEIVED', 'MESSAGE_SENT', 'MESSAGE_SWIPED',
         'MESSAGE_UPDATED', 'MESSAGE_DELETED', 'CHAT_DELETED', 'GROUP_CHAT_DELETED', 'GROUP_WRAPPER_FINISHED',
         'CHARACTER_PAGE_LOADED', 'GROUP_UPDATED']) {
         on(name, refreshNovelUI);
@@ -1769,23 +1824,6 @@ function bindNovelEvents() {
 }
 
 async function init() {
-    // 等 Kit 资产就绪再建面板；CDN 与本地 vendor 双双失败时面板降级不可用，其余入口照常
-    const kit = await nvuiAssetsReady;
-    if (kit) {
-        const built = buildNovelPanel({
-            settings: getSettings(),
-            defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
-            scanTags: () => scanChatTags(getCurrentChatLog()),
-            save: () => { if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced(); },
-            setFilters: setNovelFilterSettings,
-            setOverride: setNovelOverrideEnabled,
-            refreshStatus: applyNovelUIRefresh,
-            onExport: (range) => exportNovelText(kit, range)
-        }, kit);
-        novelPanel = built.panel;
-        uiRefs = built.refs;
-    }
-
     // 魔法棒菜单项：立即就位 + 500ms 短轮询兜底宿主重绘（最多 20 次）
     injectWandEntry();
     let tries = 0;
@@ -1798,6 +1836,27 @@ async function init() {
     }, 500);
 
     bindNovelEvents();
+    try {
+        const kit = await nvuiAssetsReady;
+        if (kit) {
+            const built = buildNovelPanel({
+                settings: getSettings(),
+                defaultExcludeTags: DEFAULT_SETTINGS.exclude_tags,
+                scanTags: () => scanChatTags(getCurrentChatLog()),
+                save: () => { if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced(); },
+                setFilters: setNovelFilterSettings,
+                setOverride: setNovelOverrideEnabled,
+                refreshStatus: applyNovelUIRefresh,
+                onExport: (range) => exportNovelText(kit, range)
+            }, kit);
+            novelPanel = built.panel;
+            uiRefs = built.refs;
+        }
+    } catch (error) {
+        console.warn('[AutoSaveTxt] 面板初始化失败:', error);
+    }
+    panelLoadFailed = !novelPanel;
+    injectWandEntry();
 
     // 视口变化后重算 tabs 粘连指示器（Kit API 未绑 resize，业务补）；rAF 节流避免连续强制回流
     if (typeof window !== 'undefined') {

@@ -39,6 +39,8 @@ const ENGINE = [
     extract('getCleanMessageSig', /function getCleanMessageSig\(settings\) \{[\s\S]*?\n\}/),
     extract('getCleanedMessage', /function getCleanedMessage\(msg, settings, sig\) \{[\s\S]*?\n\}/),
     extract('chatHasUserMessage', /function chatHasUserMessage\(chatLog\) \{[\s\S]*?\n\}/),
+    extract('interruptedStreamPlaceholders', /const interruptedStreamPlaceholders = new WeakMap\(\);/),
+    extract('isInterruptedStreamPlaceholder', /function isInterruptedStreamPlaceholder\(message\) \{[\s\S]*?\n\}/),
     extract('computeChapters', /function computeChapters\(settings, chatLog\) \{[\s\S]*?\n\}/),
     extract('computeChapterMap', /function computeChapterMap\(settings, chatLog\) \{[\s\S]*?\n\}/)
 ].join('\n\n');
